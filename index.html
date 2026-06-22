@@ -1267,8 +1267,7 @@ function renderMessageList() {
           <tr class="clickable" onclick="window.viewSavedMessage('${m.id}')">
             <td class="col-date">${escapeHtml(m.date)}</td>
             <td class="col-name">${escapeHtml(m.studentName)}</td>
-            <td class="col-full">${escapeHtml(m.text.replace(/
-/g,' '))}</td>
+            <td class="col-full">${escapeHtml(m.text.replace(/\n/g,' '))}</td>
             <td style="text-align:right;width:1%;white-space:nowrap;">
               <button class="btn btn-outline btn-sm" onclick="event.stopPropagation();window.copySavedMessage('${m.id}')">복사</button>
               <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();window.deleteSavedMessage('${m.id}')">삭제</button>
@@ -1419,8 +1418,7 @@ function renderStats() {
         html+=`<div class="stat-row" onclick="window.toggleClassStats('${q.id}_${c.id}')"><div class="left"><span class="badge">📘 ${escapeHtml(c.name)}</span><span class="sub-text">학생 ${c.students.filter(s=>s.name).length}명</span></div><span class="count">${msgs.length}건 ▾</span></div>
         <div id="classstats_${q.id}_${c.id}" style="display:none;padding:0 20px 12px 36px;">
           ${msgs.length===0?'<div class="sub-text" style="padding:8px 0;">저장된 발송 내역이 없습니다</div>':
-            msgs.map(m=>`<div class="stat-row" style="padding:8px 12px;border-bottom:1px dashed var(--border);" onclick="event.stopPropagation();window.viewStatsMessage('${q.id}','${c.id}','${m.id}')"><div class="left"><span class="badge" style="background:var(--success-light);color:var(--success);">${escapeHtml(m.date)}</span><span class="name-text">${escapeHtml(m.studentName)}</span></div><span class="sub-text">${escapeHtml((m.text||'').replace(/
-/g,' ').slice(0,30))}...</span></div>`).join('')
+            msgs.map(m=>`<div class="stat-row" style="padding:8px 12px;border-bottom:1px dashed var(--border);" onclick="event.stopPropagation();window.viewStatsMessage('${q.id}','${c.id}','${m.id}')"><div class="left"><span class="badge" style="background:var(--success-light);color:var(--success);">${escapeHtml(m.date)}</span><span class="name-text">${escapeHtml(m.studentName)}</span></div><span class="sub-text">${escapeHtml((m.text||'').replace(/\n/g,' ').slice(0,30))}...</span></div>`).join('')
           }
         </div>`;
       });
