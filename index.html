@@ -821,8 +821,13 @@ window.goClass = (qid, cid) => window._go('class', qid, cid);
 =========================================================== */
 
 function renderHome() {
+  const now = new Date();
+  const currentYear = now.getFullYear();
   const months = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
-  const boxes = db.quarters.map(q => `
+  const currentMonthIdx = now.getMonth(); // 0-indexed
+
+  // 최신 분기가 위로 (추가된 역순)
+  const boxes = [...db.quarters].reverse().map(q => `
     <div class="entity-box" onclick="window._go('quarter','${q.id}')">
       <button class="del-btn" onclick="event.stopPropagation(); window.deleteQuarter('${q.id}')">✕</button>
       <div class="emoji">🗂️</div>
@@ -839,22 +844,29 @@ function renderHome() {
       </div>
     </div>
     <div class="toolbar">
+      <label>연도</label>
+      <select id="yearSelect" style="min-width:90px;">
+        <option value="${currentYear-1}">${currentYear-1}년</option>
+        <option value="${currentYear}" selected>${currentYear}년</option>
+        <option value="${currentYear+1}">${currentYear+1}년</option>
+      </select>
       <label>월 선택</label>
       <select id="monthSelect">
-        ${months.map((m,i) => `<option value="${m}" ${i===2?'selected':''}>${m}</option>`).join('')}
+        ${months.map((m,i) => `<option value="${m}" ${i===currentMonthIdx?'selected':''}>${m}</option>`).join('')}
       </select>
       <button class="btn btn-primary" onclick="window.createQuarter()">➕ 분기생성</button>
     </div>
     <div class="box-grid">
       ${boxes}
     </div>
-    ${db.quarters.length === 0 ? `<div class="empty-state"><div class="big-emoji">🗂️</div>월을 선택하고 '분기생성' 버튼을 눌러보세요</div>` : ''}
+    ${db.quarters.length === 0 ? `<div class="empty-state"><div class="big-emoji">🗂️</div>연도와 월을 선택하고 '분기생성' 버튼을 눌러보세요</div>` : ''}
   `;
 }
 
 window.createQuarter = async function() {
+  const year = document.getElementById('yearSelect').value;
   const month = document.getElementById('monthSelect').value;
-  const name = `${month}분기`;
+  const name = `${year}년 ${month}분기`;
   if (db.quarters.find(q => q.name === name)) { showToast('⚠️ 이미 존재하는 분기입니다'); return; }
   db.quarters.push({ id: uid(), name, classes: [] });
   await saveDB();
@@ -901,11 +913,24 @@ function renderQuarterPage() {
         <div class="page-subtitle">반을 생성하고 클릭하여 문자 입력 화면으로 이동하세요</div>
       </div>
     </div>
-    <div class="toolbar">
-      <label>반 목록</label>
-      <select id="classNameSelect" style="min-width:220px;flex:1;">
-        ${CLASS_OPTIONS.map(opt => `<option value="${opt}">${opt}</option>`).join('')}
-      </select>
+    <div class="toolbar" style="flex-wrap:wrap;gap:12px;">
+      <div style="display:flex;align-items:center;gap:10px;flex:1;flex-wrap:wrap;">
+        <label style="white-space:nowrap;">반 목록</label>
+        <select id="classNameSelect" style="min-width:180px;flex:1;">
+          ${CLASS_OPTIONS.map(opt => `<option value="${opt}">${opt}</option>`).join('')}
+        </select>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;flex:1;flex-wrap:wrap;">
+        <label style="white-space:nowrap;">전분기 학생 복사 <span style="font-weight:400;color:var(--text-secondary);font-size:11px;">(선택)</span></label>
+        <select id="copyFromSelect" style="min-width:180px;flex:1;">
+          <option value="">— 복사 안 함 —</option>
+          ${db.quarters.filter(qx => qx.id !== view.quarterId).slice().reverse().map(qx =>
+            qx.classes.map(cx =>
+              `<option value="${qx.id}__${cx.id}">${escapeHtml(qx.name)} › ${escapeHtml(cx.name)} (${cx.students.filter(s=>s.name).length}명)</option>`
+            ).join('')
+          ).join('')}
+        </select>
+      </div>
       <button class="btn btn-primary" onclick="window.createClass()">➕ 반생성</button>
     </div>
     <div class="box-grid">${boxes}</div>
@@ -915,13 +940,35 @@ function renderQuarterPage() {
 
 window.createClass = async function() {
   const name = document.getElementById('classNameSelect').value;
+  const copyFrom = document.getElementById('copyFromSelect').value;
   const q = getQuarter(view.quarterId);
   const exists = q.classes.find(c => c.name === name);
   if (exists) { showToast('⚠️ 이미 생성된 반입니다'); window._go('class', q.id, exists.id); return; }
-  q.classes.push({ id: uid(), name, date:'', progress:'', homework:'', teacher:'', students:[], messages:[] });
+
+  // 전분기 학생 복사 처리
+  let copiedStudents = [];
+  if (copyFrom) {
+    const [srcQid, srcCid] = copyFrom.split('__');
+    const srcClass = getClass(srcQid, srcCid);
+    if (srcClass && srcClass.students.length > 0) {
+      // 이름/학교/학년/수업1/수업2 복사, id는 새로 발급, comment/발송기록은 초기화
+      copiedStudents = srcClass.students.filter(s => s.name).map(s => ({
+        id: uid(), name: s.name, school: s.school||'', grade: s.grade||'',
+        class1: s.class1||'', class2: s.class2||'', comment: ''
+      }));
+    }
+  }
+
+  q.classes.push({
+    id: uid(), name, date:'', progress:'', homework:'', teacher:'',
+    students: copiedStudents, messages:[]
+  });
   await saveDB();
   render();
-  showToast(`✅ '${name}' 생성 완료`, 'success');
+  const msg = copiedStudents.length > 0
+    ? `✅ '${name}' 생성 완료 (학생 ${copiedStudents.length}명 복사됨)`
+    : `✅ '${name}' 생성 완료`;
+  showToast(msg, 'success');
 };
 
 window.deleteClass = function(qid, cid) {
@@ -1503,7 +1550,10 @@ function renderStats() {
   `;
   if (db.quarters.length === 0) { html += `<div class="empty-state"><div class="big-emoji">📊</div>아직 데이터가 없습니다</div>`; content.innerHTML = html; return; }
 
-  db.quarters.forEach(q => {
+  // 최신 분기가 위로
+  const sortedQuarters = [...db.quarters].reverse();
+
+  sortedQuarters.forEach(q => {
     const qMsgCount = q.classes.reduce((s,c)=>s+(c.messages||[]).length,0);
     html += `<div class="stat-section">
       <div class="stat-section-header">🗂️ ${escapeHtml(q.name)} <span class="count">· 발송 ${qMsgCount}건</span></div>
