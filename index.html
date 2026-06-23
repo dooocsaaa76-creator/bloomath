@@ -1345,9 +1345,11 @@ function buildMessage(date, progress, homework, studentName, comment) {
   if (date) msg += `${date} 진도 및 과제 안내
 
 `;
-  if (progress) msg += `■ 진도 : ${progress}
+  if (progress) msg += `■ 진도
+${progress}
 `;
-  if (homework) msg += `■ 과제 : ${homework}
+  if (homework) msg += `■ 과제
+${homework}
 `;
   if (progress || homework) msg += `
 `;
