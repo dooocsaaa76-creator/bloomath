@@ -913,25 +913,25 @@ function renderQuarterPage() {
         <div class="page-subtitle">반을 생성하고 클릭하여 문자 입력 화면으로 이동하세요</div>
       </div>
     </div>
-    <div class="toolbar" style="flex-wrap:wrap;gap:12px;">
-      <div style="display:flex;align-items:center;gap:10px;flex:1;flex-wrap:wrap;">
-        <label style="white-space:nowrap;">반 목록</label>
-        <select id="classNameSelect" style="min-width:180px;flex:1;">
-          ${CLASS_OPTIONS.map(opt => `<option value="${opt}">${opt}</option>`).join('')}
-        </select>
-      </div>
-      <div style="display:flex;align-items:center;gap:10px;flex:1;flex-wrap:wrap;">
-        <label style="white-space:nowrap;">전분기 학생 복사 <span style="font-weight:400;color:var(--text-secondary);font-size:11px;">(선택)</span></label>
-        <select id="copyFromSelect" style="min-width:180px;flex:1;">
-          <option value="">— 복사 안 함 —</option>
-          ${db.quarters.filter(qx => qx.id !== view.quarterId).slice().reverse().map(qx =>
-            qx.classes.map(cx =>
-              `<option value="${qx.id}__${cx.id}">${escapeHtml(qx.name)} › ${escapeHtml(cx.name)} (${cx.students.filter(s=>s.name).length}명)</option>`
-            ).join('')
-          ).join('')}
-        </select>
-      </div>
-      <button class="btn btn-primary" onclick="window.createClass()">➕ 반생성</button>
+    <div class="toolbar" style="flex-wrap:wrap;gap:12px;align-items:center;">
+      <label style="white-space:nowrap;flex-shrink:0;">반 목록</label>
+      <select id="classNameSelect" style="width:160px;flex-shrink:0;">
+        ${CLASS_OPTIONS.map(opt => `<option value="${opt}">${opt}</option>`).join('')}
+      </select>
+      <label style="white-space:nowrap;flex-shrink:0;">전분기 학생 복사 <span style="font-weight:400;color:var(--text-secondary);font-size:11px;">(선택)</span></label>
+      <select id="copyFromSelect" style="width:320px;flex-shrink:0;">
+        <option value="">— 복사 안 함 —</option>
+        ${(() => {
+          // 현재 분기를 제외하고, 가장 최근(직전) 분기 하나만 표시
+          const others = db.quarters.filter(qx => qx.id !== view.quarterId);
+          if (others.length === 0) return '';
+          const prevQ = others[others.length - 1]; // 배열 마지막 = 가장 최근 추가된 분기
+          return prevQ.classes.map(cx =>
+            `<option value="${prevQ.id}__${cx.id}">${escapeHtml(prevQ.name)} › ${escapeHtml(cx.name)} (${cx.students.filter(s=>s.name).length}명)</option>`
+          ).join('');
+        })()}
+      </select>
+      <button class="btn btn-primary" onclick="window.createClass()" style="flex-shrink:0;">➕ 반생성</button>
     </div>
     <div class="box-grid">${boxes}</div>
     ${q.classes.length === 0 ? `<div class="empty-state"><div class="big-emoji">📘</div>반을 선택하고 '반생성' 버튼을 눌러보세요</div>` : ''}
@@ -951,10 +951,10 @@ window.createClass = async function() {
     const [srcQid, srcCid] = copyFrom.split('__');
     const srcClass = getClass(srcQid, srcCid);
     if (srcClass && srcClass.students.length > 0) {
-      // 이름/학교/학년/수업1/수업2 복사, id는 새로 발급, comment/발송기록은 초기화
+      // 이름/학교/학년만 복사, 수업1·수업2·comment는 초기화
       copiedStudents = srcClass.students.filter(s => s.name).map(s => ({
         id: uid(), name: s.name, school: s.school||'', grade: s.grade||'',
-        class1: s.class1||'', class2: s.class2||'', comment: ''
+        class1: '', class2: '', comment: ''
       }));
     }
   }
@@ -1153,11 +1153,18 @@ function renderTabs() {
     tabs.innerHTML = `<span style="font-size:12.5px;color:var(--text-secondary);">등록된 학생이 없습니다. '학생 명단 관리'에서 학생을 추가해주세요.</span>`;
     return;
   }
-  tabs.innerHTML = c.students.map((s, i) => `
-    <button class="tab-btn ${i === currentStudentIdx ? 'active' : ''}" onclick="window.switchStudent(${i})">
+  // 가나다 정렬된 인덱스로 탭 생성 (switchStudent는 원본 인덱스 기준)
+  const sortedIndices = c.students
+    .map((s, i) => ({ s, i }))
+    .sort((a, b) => a.s.name.localeCompare(b.s.name, 'ko'))
+    .map(x => x.i);
+
+  tabs.innerHTML = sortedIndices.map(i => {
+    const s = c.students[i];
+    return `<button class="tab-btn ${i === currentStudentIdx ? 'active' : ''}" onclick="window.switchStudent(${i})">
       ${escapeHtml(s.name) || `학생 ${i+1}`}
-    </button>
-  `).join('');
+    </button>`;
+  }).join('');
 }
 
 window.switchStudent = function(idx) {
@@ -1236,11 +1243,19 @@ function renderRosterList() {
     wrap.innerHTML = `<div class="empty-state" style="padding:24px 10px;"><div class="big-emoji">🧒</div>등록된 학생이 없습니다</div>`;
     return;
   }
+  // 가나다 정렬된 인덱스 배열 생성 (원본 배열 순서는 유지)
+  const sortedIndices = c.students
+    .map((s, i) => ({ s, i }))
+    .sort((a, b) => a.s.name.localeCompare(b.s.name, 'ko'))
+    .map(x => x.i);
+
   wrap.innerHTML = `
     <table class="roster-table">
       <thead><tr><th>이름</th><th>학교</th><th>학년</th><th>수업1</th><th>수업2</th><th></th></tr></thead>
       <tbody>
-        ${c.students.map((s,i) => `
+        ${sortedIndices.map(i => {
+          const s = c.students[i];
+          return `
           <tr class="${i===currentStudentIdx?'selected-row':''}" id="roster-row-${i}">
             <td><b>${escapeHtml(s.name)}</b></td>
             <td id="roster-cell-school-${i}">${escapeHtml(s.school)||'-'}</td>
@@ -1253,7 +1268,7 @@ function renderRosterList() {
               <button class="btn btn-danger btn-sm" onclick="window.removeRosterStudent(${i})">삭제</button>
             </td>
           </tr>
-        `).join('')}
+        `}).join('')}
       </tbody>
     </table>
   `;
