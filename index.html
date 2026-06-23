@@ -259,6 +259,28 @@
   .entity-box:hover .del-btn { display: flex; }
   .entity-box .del-btn:hover { background: #FEE2E2; color: #EF4444; }
 
+  /* 담임명 */
+  .teacher-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #FFF3E0;
+    color: #F59E0B;
+    border: 1px solid #FDE68A;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 12px;
+    margin-left: 8px;
+    vertical-align: middle;
+  }
+  .teacher-input-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 0;
+  }
+
   .empty-state {
     text-align: center;
     padding: 50px 20px;
@@ -866,7 +888,8 @@ function renderQuarterPage() {
       <button class="del-btn" onclick="event.stopPropagation(); window.deleteClass('${q.id}','${c.id}')">✕</button>
       <div class="emoji">📘</div>
       <div class="name">${c.name}</div>
-      <div class="meta">학생 ${c.students.length}명 · 발송 ${totalMsgs}건</div>
+      <div class="meta" style="margin-bottom:6px;">학생 ${c.students.length}명 · 발송 ${totalMsgs}건</div>
+      ${c.teacher ? `<span class="teacher-badge">👩‍🏫 ${escapeHtml(c.teacher)}</span>` : `<span style="font-size:11px;color:#D1D5DB;">담임 미지정</span>`}
     </div>
   `;
   }).join('');
@@ -895,7 +918,7 @@ window.createClass = async function() {
   const q = getQuarter(view.quarterId);
   const exists = q.classes.find(c => c.name === name);
   if (exists) { showToast('⚠️ 이미 생성된 반입니다'); window._go('class', q.id, exists.id); return; }
-  q.classes.push({ id: uid(), name, date:'', progress:'', homework:'', students:[], messages:[] });
+  q.classes.push({ id: uid(), name, date:'', progress:'', homework:'', teacher:'', students:[], messages:[] });
   await saveDB();
   render();
   showToast(`✅ '${name}' 생성 완료`, 'success');
@@ -924,7 +947,12 @@ function renderClassPage() {
   return `
     <div class="page-title-row">
       <div>
-        <div class="page-title">${c.name}</div>
+        <div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;">
+          <div class="page-title">${c.name}</div>
+          <span class="teacher-badge" id="teacherBadge" onclick="window.editTeacher()" title="클릭하여 담임 변경" style="cursor:pointer;">
+            👩‍🏫 ${c.teacher ? escapeHtml(c.teacher) : '담임 입력'}
+          </span>
+        </div>
         <div class="page-subtitle">공통 내용과 개별 코멘트를 입력하면 문자가 자동 생성됩니다</div>
       </div>
       <button class="btn btn-outline" onclick="window.toggleStudentMgmt()">👤 학생 명단 관리</button>
@@ -1110,6 +1138,20 @@ function loadCurrentStudentFields() {
   commentEl.value = s.comment || '';
   countChars();
 }
+
+/* 담임명 편집 */
+window.editTeacher = async function() {
+  const c = getClass(view.quarterId, view.classId);
+  const current = c.teacher || '';
+  const name = prompt('담임 선생님 이름을 입력해주세요:', current);
+  if (name === null) return; // 취소
+  c.teacher = name.trim();
+  await saveDB();
+  // 배지만 업데이트
+  const badge = document.getElementById('teacherBadge');
+  if (badge) badge.innerHTML = `👩‍🏫 ${escapeHtml(c.teacher) || '담임 입력'}`;
+  showToast('✅ 담임명이 저장되었습니다', 'success');
+};
 
 /* 학생 명단 */
 window.toggleStudentMgmt = function() {
@@ -1497,6 +1539,7 @@ function renderStats() {
           <div class="stat-row" onclick="window.toggleClassStats('${q.id}_${c.id}')" style="border-bottom:1.5px solid var(--border);">
             <div class="left">
               <span class="badge">📘 ${escapeHtml(c.name)}</span>
+              ${c.teacher ? `<span class="teacher-badge" style="margin-left:4px;">👩‍🏫 ${escapeHtml(c.teacher)}</span>` : ''}
               <span class="sub-text">학생 ${studentList.length}명</span>
             </div>
             <span class="count">${totalClassMsgs}건 ▾</span>
@@ -1518,7 +1561,14 @@ function renderStats() {
             <tbody>`;
 
           studentList.forEach(stu => {
-            const stuMsgs = stu.msgs.slice().sort((a,b) => a.date.localeCompare(b.date));
+            const stuMsgs = stu.msgs.slice().sort((a,b) => {
+              // 날짜 파싱: "3/4(수)", "6/22(월)", "3/5 목요일" 등 다양한 형식 처리
+              const parseDate = d => {
+                const m = (d||'').match(/(\d{1,2})[\/\.](\d{1,2})/);
+                return m ? parseInt(m[1])*100 + parseInt(m[2]) : 0;
+              };
+              return parseDate(a.date) - parseDate(b.date);
+            });
             const count = stuMsgs.length;
             html += `
               <tr style="border-bottom:1px solid var(--border);vertical-align:middle;">
