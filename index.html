@@ -1152,14 +1152,15 @@ function renderRosterList() {
       <thead><tr><th>이름</th><th>학교</th><th>학년</th><th>수업1</th><th>수업2</th><th></th></tr></thead>
       <tbody>
         ${c.students.map((s,i) => `
-          <tr class="${i===currentStudentIdx?'selected-row':''}">
+          <tr class="${i===currentStudentIdx?'selected-row':''}" id="roster-row-${i}">
             <td><b>${escapeHtml(s.name)}</b></td>
-            <td>${escapeHtml(s.school)||'-'}</td>
-            <td>${escapeHtml(s.grade)||'-'}</td>
-            <td>${escapeHtml(s.class1)||'-'}</td>
-            <td>${escapeHtml(s.class2)||'-'}</td>
+            <td id="roster-cell-school-${i}">${escapeHtml(s.school)||'-'}</td>
+            <td id="roster-cell-grade-${i}">${escapeHtml(s.grade)||'-'}</td>
+            <td id="roster-cell-class1-${i}">${escapeHtml(s.class1)||'-'}</td>
+            <td id="roster-cell-class2-${i}">${escapeHtml(s.class2)||'-'}</td>
             <td style="white-space:nowrap;text-align:right;">
               <button class="btn btn-outline btn-sm" onclick="window.switchStudent(${i})">선택</button>
+              <button class="btn btn-outline btn-sm" style="color:var(--primary);border-color:var(--primary);" onclick="window.editRosterStudent(${i})">수정</button>
               <button class="btn btn-danger btn-sm" onclick="window.removeRosterStudent(${i})">삭제</button>
             </td>
           </tr>
@@ -1169,11 +1170,62 @@ function renderRosterList() {
   `;
 }
 
+window.editRosterStudent = function(idx) {
+  const c = getClass(view.quarterId, view.classId);
+  const s = c.students[idx];
+
+  // 이미 편집 중이면 닫기
+  const existingEdit = document.getElementById('roster-edit-row');
+  if (existingEdit) existingEdit.remove();
+
+  const row = document.getElementById(`roster-row-${idx}`);
+  if (!row) return;
+
+  const editRow = document.createElement('tr');
+  editRow.id = 'roster-edit-row';
+  editRow.style.background = '#FFFDE7';
+  editRow.innerHTML = `
+    <td><b>${escapeHtml(s.name)}</b></td>
+    <td><input type="text" id="edit-school" value="${escapeHtml(s.school||'')}" placeholder="학교" style="width:100%;border:1.5px solid var(--primary);border-radius:6px;padding:6px 8px;font-size:13px;font-family:inherit;"></td>
+    <td>
+      <select id="edit-grade" style="width:100%;border:1.5px solid var(--primary);border-radius:6px;padding:6px 8px;font-size:13px;font-family:inherit;">
+        <option value="">학년 선택</option>
+        <option value="초1" ${s.grade==='초1'?'selected':''}>초1</option>
+        <option value="초2" ${s.grade==='초2'?'selected':''}>초2</option>
+        <option value="초3" ${s.grade==='초3'?'selected':''}>초3</option>
+        <option value="초4" ${s.grade==='초4'?'selected':''}>초4</option>
+      </select>
+    </td>
+    <td><input type="text" id="edit-class1" value="${escapeHtml(s.class1||'')}" placeholder="수업1" style="width:100%;border:1.5px solid var(--primary);border-radius:6px;padding:6px 8px;font-size:13px;font-family:inherit;"></td>
+    <td><input type="text" id="edit-class2" value="${escapeHtml(s.class2||'')}" placeholder="수업2" style="width:100%;border:1.5px solid var(--primary);border-radius:6px;padding:6px 8px;font-size:13px;font-family:inherit;"></td>
+    <td style="white-space:nowrap;text-align:right;">
+      <button class="btn btn-primary btn-sm" onclick="window.saveRosterEdit(${idx})">저장</button>
+      <button class="btn btn-outline btn-sm" onclick="document.getElementById('roster-edit-row').remove()">취소</button>
+    </td>
+  `;
+
+  // 해당 row 다음에 편집 row 삽입
+  row.insertAdjacentElement('afterend', editRow);
+  document.getElementById('edit-school').focus();
+};
+
+window.saveRosterEdit = async function(idx) {
+  const c = getClass(view.quarterId, view.classId);
+  const s = c.students[idx];
+  s.school = document.getElementById('edit-school').value.trim();
+  s.grade  = document.getElementById('edit-grade').value;
+  s.class1 = document.getElementById('edit-class1').value.trim();
+  s.class2 = document.getElementById('edit-class2').value.trim();
+  await saveDB();
+  renderRosterList();
+  loadCurrentStudentFields();
+  showToast('✅ 수정되었습니다', 'success');
+};
+
 window.removeRosterStudent = function(idx) {
   const c = getClass(view.quarterId, view.classId);
   const s = c.students[idx];
-  showConfirm(`'${s.name}' 학생을 명단에서 삭제할까요?
-(저장된 발송 내역은 유지됩니다)`, async () => {
+  showConfirm(`'${s.name}' 학생을 명단에서 삭제할까요?\n(저장된 발송 내역은 유지됩니다)`, async () => {
     c.students.splice(idx, 1);
     if (currentStudentIdx >= c.students.length) currentStudentIdx = Math.max(0, c.students.length-1);
     await saveDB();
