@@ -1460,23 +1460,99 @@ function renderStats() {
     </div>
   `;
   if (db.quarters.length === 0) { html += `<div class="empty-state"><div class="big-emoji">📊</div>아직 데이터가 없습니다</div>`; content.innerHTML = html; return; }
+
   db.quarters.forEach(q => {
     const qMsgCount = q.classes.reduce((s,c)=>s+(c.messages||[]).length,0);
-    html += `<div class="stat-section"><div class="stat-section-header">🗂️ ${escapeHtml(q.name)} <span class="count">· 발송 ${qMsgCount}건</span></div><div class="stat-section-body">`;
-    if (q.classes.length===0) { html+=`<div class="stat-row"><span class="sub-text">등록된 반이 없습니다</span></div>`; }
-    else {
+    html += `<div class="stat-section">
+      <div class="stat-section-header">🗂️ ${escapeHtml(q.name)} <span class="count">· 발송 ${qMsgCount}건</span></div>
+      <div class="stat-section-body">`;
+
+    if (q.classes.length === 0) {
+      html += `<div class="stat-row"><span class="sub-text">등록된 반이 없습니다</span></div>`;
+    } else {
       q.classes.forEach(c => {
-        const msgs=(c.messages||[]).slice().sort((a,b)=>b.createdAt-a.createdAt);
-        html+=`<div class="stat-row" onclick="window.toggleClassStats('${q.id}_${c.id}')"><div class="left"><span class="badge">📘 ${escapeHtml(c.name)}</span><span class="sub-text">학생 ${c.students.filter(s=>s.name).length}명</span></div><span class="count">${msgs.length}건 ▾</span></div>
-        <div id="classstats_${q.id}_${c.id}" style="display:none;padding:0 20px 12px 36px;">
-          ${msgs.length===0?'<div class="sub-text" style="padding:8px 0;">저장된 발송 내역이 없습니다</div>':
-            msgs.map(m=>`<div class="stat-row" style="padding:8px 12px;border-bottom:1px dashed var(--border);" onclick="event.stopPropagation();window.viewStatsMessage('${q.id}','${c.id}','${m.id}')"><div class="left"><span class="badge" style="background:var(--success-light);color:var(--success);">${escapeHtml(m.date)}</span><span class="name-text">${escapeHtml(m.studentName)}</span></div><span class="sub-text">${escapeHtml((m.text||'').replace(/\n/g,' ').slice(0,30))}...</span></div>`).join('')
+        const msgs = c.messages || [];
+        const totalClassMsgs = msgs.length;
+
+        // 학생별로 발송 내역 묶기
+        const studentMap = {};
+        c.students.forEach(s => { if (s.name) studentMap[s.id] = { name: s.name, msgs: [] }; });
+        msgs.forEach(m => {
+          if (studentMap[m.studentId]) {
+            studentMap[m.studentId].msgs.push(m);
+          } else {
+            // studentId 없는 경우 이름으로 매핑
+            const found = Object.values(studentMap).find(x => x.name === m.studentName);
+            if (found) found.msgs.push(m);
+            else {
+              if (!studentMap['_'+m.studentName]) studentMap['_'+m.studentName] = { name: m.studentName, msgs: [] };
+              studentMap['_'+m.studentName].msgs.push(m);
+            }
           }
-        </div>`;
+        });
+
+        const studentList = Object.values(studentMap).filter(x => x.name);
+
+        html += `
+          <div class="stat-row" onclick="window.toggleClassStats('${q.id}_${c.id}')" style="border-bottom:1.5px solid var(--border);">
+            <div class="left">
+              <span class="badge">📘 ${escapeHtml(c.name)}</span>
+              <span class="sub-text">학생 ${studentList.length}명</span>
+            </div>
+            <span class="count">${totalClassMsgs}건 ▾</span>
+          </div>
+          <div id="classstats_${q.id}_${c.id}" style="display:none;">
+        `;
+
+        if (studentList.length === 0) {
+          html += `<div style="padding:12px 20px;color:var(--text-secondary);font-size:13px;">저장된 발송 내역이 없습니다</div>`;
+        } else {
+          html += `<table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+              <tr style="background:var(--surface2);">
+                <th style="padding:9px 16px;text-align:center;width:60px;font-size:11.5px;color:var(--text-secondary);letter-spacing:0.03em;border-bottom:1px solid var(--border);">발송수</th>
+                <th style="padding:9px 12px;text-align:left;width:90px;font-size:11.5px;color:var(--text-secondary);letter-spacing:0.03em;border-bottom:1px solid var(--border);">학생</th>
+                <th style="padding:9px 12px;text-align:left;font-size:11.5px;color:var(--text-secondary);letter-spacing:0.03em;border-bottom:1px solid var(--border);">발송 날짜</th>
+              </tr>
+            </thead>
+            <tbody>`;
+
+          studentList.forEach(stu => {
+            const stuMsgs = stu.msgs.slice().sort((a,b) => a.date.localeCompare(b.date));
+            const count = stuMsgs.length;
+            html += `
+              <tr style="border-bottom:1px solid var(--border);vertical-align:middle;">
+                <td style="padding:10px 16px;text-align:center;">
+                  <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:${count>0?'var(--primary)':'var(--border)'};color:${count>0?'#fff':'var(--text-secondary)'};font-size:12px;font-weight:700;">${count}</span>
+                </td>
+                <td style="padding:10px 12px;font-weight:700;white-space:nowrap;">${escapeHtml(stu.name)}</td>
+                <td style="padding:10px 12px;">
+                  <div style="display:flex;flex-wrap:wrap;gap:5px;">
+                    ${stuMsgs.length === 0
+                      ? `<span style="color:var(--text-secondary);font-size:12px;">발송 내역 없음</span>`
+                      : stuMsgs.map(m => `
+                          <span
+                            onclick="window.viewStatsMessage('${q.id}','${c.id}','${m.id}')"
+                            style="display:inline-flex;align-items:center;background:var(--success-light);color:var(--success);border:1px solid #A7F3D0;padding:3px 9px;border-radius:12px;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;white-space:nowrap;"
+                            onmouseover="this.style.background='var(--success)';this.style.color='#fff';"
+                            onmouseout="this.style.background='var(--success-light)';this.style.color='var(--success)';"
+                          >${escapeHtml(m.date)}</span>
+                        `).join('')
+                    }
+                  </div>
+                </td>
+              </tr>`;
+          });
+
+          html += `</tbody></table>`;
+        }
+
+        html += `</div>`;
       });
     }
-    html+=`</div></div>`;
+    html += `</div></div>`;
   });
+
   content.innerHTML = html;
 }
 
