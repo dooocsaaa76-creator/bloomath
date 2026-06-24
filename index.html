@@ -2217,14 +2217,17 @@ function renderPLClassPage() {
               : `<table class="msg-table">
                   <thead><tr><th class="col-date">날짜</th><th>학생</th><th>내용</th><th></th></tr></thead>
                   <tbody>
-                    ${msgHistory.map(h=>`
+                    ${msgHistory.map((h,hi)=>{
+                      const safeId = 'plh_' + (h.id || hi);
+                      window['_plMsg_'+safeId] = h.text||'';
+                      return `
                       <tr class="clickable" onclick="window.viewPLMsg(${JSON.stringify(JSON.stringify(h))})">
                         <td class="col-date" style="white-space:nowrap;">${escapeHtml(h.date)}</td>
                         <td style="font-weight:600;white-space:nowrap;">${escapeHtml(h.studentName)}</td>
                         <td class="col-full">${escapeHtml((h.text||'').replace(/\n/g,' ').slice(0,35))}...</td>
-                        <td><button class="btn btn-outline btn-sm" onclick="event.stopPropagation();navigator.clipboard.writeText(${JSON.stringify(h.text||'')}).then(()=>showToast('✅ 복사됨','success'))">복사</button></td>
-                      </tr>
-                    `).join('')}
+                        <td><button class="btn btn-outline btn-sm" onclick="event.stopPropagation();navigator.clipboard.writeText(window['_plMsg_${safeId}']||'').then(()=>showToast('✅ 복사됨','success'))">복사</button></td>
+                      </tr>`;
+                    }).join('')}
                   </tbody>
                 </table>`
             }
@@ -2359,12 +2362,17 @@ window.selectPLStudent=function(sid){
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
       <div class="field">
         <label>수업 날짜</label>
-        <input type="text" id="plDate_${sid}" placeholder="예: 6/15(화)" value="${escapeHtml(session.date||data.currentDate||'')}" oninput="window.updatePLPreview('${sid}')">
+        <input type="date" id="plDate_${sid}" value="${escapeHtml(session.date||data.currentDate||'')}" onchange="window.updatePLPreview('${sid}')" style="width:100%;">
       </div>
       <div class="field">
         <label>회차</label>
         <input type="text" id="plSess_${sid}" placeholder="예: 3" value="${escapeHtml(String(session.sessionNum||''))}" oninput="window.updatePLPreview('${sid}')">
       </div>
+    </div>
+
+    <div class="field">
+      <label>과정 <span style="font-size:11px;font-weight:400;color:var(--text-secondary);">(예: 중2-1기)</span></label>
+      <input type="text" id="plCourse_${sid}" placeholder="예: 중2-1기, 초3-2심화" value="${escapeHtml(session.course||stu.course||'')}" oninput="window.updatePLPreview('${sid}')">
     </div>
 
     <div class="field">
@@ -2395,13 +2403,24 @@ window.selectPLStudent=function(sid){
   window.updatePLPreview(sid);
 };
 
+// YYYY-MM-DD → M/D(요일) 변환
+function formatPLDate(val) {
+  if (!val) return '';
+  // 이미 변환된 형식이면 그대로
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(val)) return val;
+  const days = ['일','월','화','수','목','금','토'];
+  const d = new Date(val + 'T00:00:00');
+  return `${d.getMonth()+1}/${d.getDate()}(${days[d.getDay()]})`;
+}
+
 window.updatePLPreview=function(sid){
   if(!sid) return;
   const stu=pl_db.students[sid]; if(!stu)return;
   const g=id=>document.getElementById(id)?.value||'';
   const msg = buildPLMsg(
-    stu,
-    g('plDate_'+sid),
+    g('plCourse_'+sid) || stu.course,
+    stu.name,
+    formatPLDate(g('plDate_'+sid)),
     g('plSess_'+sid),
     g('plLC_'+sid),
     g('plHW_'+sid),
@@ -2415,30 +2434,40 @@ window.updatePLPreview=function(sid){
 
 window.resetPLInput=function(sid){
   showConfirm('입력 내용을 초기화할까요?',()=>{
-    ['plLC_','plHW_','plCmt_','plSess_','plDate_','plTestScore_','plTestMax_'].forEach(p=>{
+    ['plLC_','plHW_','plCmt_','plSess_','plDate_','plTestScore_','plTestMax_','plCourse_'].forEach(p=>{
       const e=document.getElementById(p+sid); if(e)e.value='';
     });
     window.updatePLPreview(sid); showToast('↺ 초기화되었습니다','success');
   });
 };
 
-function buildPLMsg(stu, date, sn, lc, hw, testScore, testMax, cmt) {
-  const n=stu.name||'학생'; const cr=stu.course||'';
-  let m=''; if(date) m+=`${date}\n`;
-  m+=`${n}학생의 ${cr} ${sn?sn+'회차':''} 수업안내\n\n`;
-  if(lc) m+=`L-Class진도\n${lc}\n\n`;
-  if(hw) m+=`가정학습 과제\n${hw}\n\n`;
-  if(testScore) m+=`일일TEST: ${testScore}점${testMax?` / ${testMax}점 만점`:''}\n\n`;
-  if(cmt) m+=cmt;
+function buildPLMsg(course, name, date, sn, lc, hw, testScore, testMax, cmt) {
+  const n = name || '학생';
+  const cr = course || '';
+  let m = '';
+  if (date) m += `${date}\n`;
+  m += `${n}학생의 ${cr} ${sn ? sn+'회차' : ''} 수업안내\n\n`;
+  if (lc) m += `L-Class진도\n${lc}\n\n`;
+  if (hw) m += `가정학습 과제\n${hw}\n\n`;
+  if (testScore) m += `일일TEST: ${testScore}점${testMax ? ` / ${testMax}점 만점` : ''}\n\n`;
+  if (cmt) m += cmt;
   return m.trim();
 }
 
 function getPLCurrentMsg(sid) {
   const stu=pl_db.students[sid]; if(!stu) return '';
   const g=id=>document.getElementById(id)?.value||'';
-  return buildPLMsg(stu,
-    g('plDate_'+sid), g('plSess_'+sid), g('plLC_'+sid), g('plHW_'+sid),
-    g('plTestScore_'+sid), g('plTestMax_'+sid), g('plCmt_'+sid));
+  return buildPLMsg(
+    g('plCourse_'+sid) || stu.course,
+    stu.name,
+    formatPLDate(g('plDate_'+sid)),
+    g('plSess_'+sid),
+    g('plLC_'+sid),
+    g('plHW_'+sid),
+    g('plTestScore_'+sid),
+    g('plTestMax_'+sid),
+    g('plCmt_'+sid)
+  );
 }
 
 // 3번 fix: sid를 인자 없이 plView.studentId 사용
@@ -2451,15 +2480,17 @@ window.copyPLMsg=function(sid){
 window.savePLSess=async function(sid){
   const data=getPLClassData(view.plClassId);
   const g=id=>document.getElementById(id)?.value||'';
-  const date=g('plDate_'+sid); data.currentDate=date;
+  const dateRaw=g('plDate_'+sid); data.currentDate=dateRaw;
   const entry={
-    studentId:sid, date,
-    sessionNum:  g('plSess_'+sid),
-    lclass:      g('plLC_'+sid),
-    homework:    g('plHW_'+sid),
-    testScore:   g('plTestScore_'+sid),
-    testMax:     g('plTestMax_'+sid),
-    comment:     g('plCmt_'+sid)
+    studentId: sid,
+    date:      dateRaw,
+    sessionNum:g('plSess_'+sid),
+    course:    g('plCourse_'+sid),
+    lclass:    g('plLC_'+sid),
+    homework:  g('plHW_'+sid),
+    testScore: g('plTestScore_'+sid),
+    testMax:   g('plTestMax_'+sid),
+    comment:   g('plCmt_'+sid)
   };
   if(!data.sessions)data.sessions=[]; const idx=data.sessions.findIndex(s=>s.studentId===sid);
   if(idx>=0)data.sessions[idx]=entry;else data.sessions.push(entry);
@@ -2472,15 +2503,16 @@ window.markPLSent=async function(sid){
   await window.savePLSess(target);
   const classId=view.plClassId; const data=getPLClassData(classId);
   const g=id=>document.getElementById(id)?.value||'';
-  const date=g('plDate_'+target)||data.currentDate||'';
-  data.currentDate=date;
+  const dateRaw=g('plDate_'+target)||data.currentDate||'';
+  data.currentDate=dateRaw;
+  const dateDisplay = formatPLDate(dateRaw);
   if(!pl_db.students[target].sentLog)pl_db.students[target].sentLog={};
-  pl_db.students[target].sentLog[classId+'_'+date]=true;
+  pl_db.students[target].sentLog[classId+'_'+dateRaw]=true;
   if(!data.sendHistory)data.sendHistory=[];
   const stu=pl_db.students[target];
   const msg=getPLCurrentMsg(target);
   const ei=data.sendHistory.findIndex(h=>h.studentId===target&&h.date===date);
-  const entry={id:uid(),studentId:target,studentName:stu.name,date,
+  const entry={id:uid(),studentId:target,studentName:stu.name,date:dateDisplay,
     sessionNum:g('plSess_'+target),text:msg,sentAt:Date.now()};
   if(ei>=0)data.sendHistory[ei]=entry;else data.sendHistory.push(entry);
   await savePLDB();
