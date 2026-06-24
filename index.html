@@ -784,17 +784,9 @@ function startRealtimeSync() {
     }
     if (!isInitialized) {
       isInitialized = true;
-      // PL도 준비될 때까지 잠깐 기다림 (최대 1.5초)
-      const tryRender = (attempts) => {
-        if (isPLInitialized || attempts <= 0) {
-          hideLoading();
-          view = { page: 'main' };
-          render();
-        } else {
-          setTimeout(() => tryRender(attempts - 1), 300);
-        }
-      };
-      tryRender(5);
+      hideLoading();
+      view = { page: 'main' };
+      render();
     } else {
       // 다른 사람이 수정했을 때 현재 페이지만 부드럽게 갱신
       silentRefresh();
@@ -1900,6 +1892,7 @@ function startPLRealtimeSync() {
     }
   }, (err) => {
     console.error('PL 동기화 오류:', err);
+    isPLInitialized = true; // 오류가 나도 앱은 동작하도록
   });
 }
 
