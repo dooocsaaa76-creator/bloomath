@@ -2690,6 +2690,8 @@ window.deletePLStudent = function(sid) {
     showToast('🗑️ 학생이 삭제되었습니다');
   });
 };
+
+window.editPLStu=function(sid){
   const stu=pl_db.students[sid]; if(!stu)return;
   // 이 학생이 속한 반 목록
   const myClassIds=new Set();
