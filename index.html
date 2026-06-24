@@ -1904,7 +1904,7 @@ function silentPLRefresh() {
   if (!app) return;
   if (view.page === 'pl-home') { app.innerHTML = renderPLHome(); showSyncBadge(); }
   else if (view.page === 'pl-terms') { app.innerHTML = renderPLTerms(); showSyncBadge(); }
-  else if (view.page === 'pl-class') { const l = document.getElementById('plStudentList'); if(l){renderPLStudentList();showSyncBadge();} }
+  else if (view.page === 'pl-class') { const t=document.getElementById('plStudentTabs'); if(t){renderPLStudentTabs();showSyncBadge();} }
   else if (view.page === 'pl-roster') { app.innerHTML = renderPLRoster(); showSyncBadge(); }
 }
 
@@ -1984,14 +1984,39 @@ function renderPLHome() {
     </div>`;
 }
 
+/* 관별 기본 반 템플릿 */
+const PL_DEFAULT_CLASSES = {
+  '영재관': [
+    // 초중등PL 월/화/수/목 3시~6시 (A,B), 6시~9시
+    {name:'월1부A', day:'월', time:'3:00~6:00'}, {name:'월1부B', day:'월', time:'3:00~6:00'}, {name:'월2부', day:'월', time:'6:00~9:00'},
+    {name:'화1부A', day:'화', time:'3:00~6:00'}, {name:'화1부B', day:'화', time:'3:00~6:00'}, {name:'화1부C', day:'화', time:'3:00~6:00'}, {name:'화2부', day:'화', time:'6:00~9:00'},
+    {name:'수1부A', day:'수', time:'3:00~6:00'}, {name:'수1부B', day:'수', time:'3:00~6:00'}, {name:'수2부', day:'수', time:'6:00~9:00'},
+    {name:'목1부', day:'목', time:'3:00~6:00'},
+    // 토
+    {name:'토1부', day:'토', time:'9:30~12:30'}, {name:'토2부', day:'토', time:'12:00~15:00'}, {name:'토3부B', day:'토', time:'13:00~16:00'}, {name:'토3부C', day:'토', time:'13:00~16:00'},
+    // 중고등PL (5시간)
+    {name:'중고등수', day:'수', time:'5:00~10:00'}, {name:'중고등일', day:'일', time:'12:30~17:30'},
+  ],
+  '프리미엄관': [
+    {name:'월1부', day:'월', time:'3:50~6:50'},
+    {name:'화1부', day:'화', time:'3:50~6:50'},
+    {name:'수1부', day:'수', time:'7:00~10:00'},
+    {name:'금1부', day:'금', time:'7:00~10:00'},
+  ]
+};
+
 window.createPLTerm = async function() {
   const yr=document.getElementById('plYearSel').value;
   const mo=document.getElementById('plMonthSel').value;
   const venue=document.getElementById('plVenueSel').value;
   const name=`${yr}년 ${mo}분기 (${venue})`;
   if(pl_db.terms.find(t=>t.name===name)){showToast('⚠️ 이미 존재하는 분기입니다');return;}
-  pl_db.terms.push({id:uid(),name,venue,classes:[]});
-  await savePLDB(); render(); showToast(`✅ '${name}' 생성 완료`,'success');
+  // 기본 반 자동 생성
+  const defaultClasses = (PL_DEFAULT_CLASSES[venue]||[]).map(c => ({
+    id: uid(), name: c.name, day: c.day, time: c.time, teacher: ''
+  }));
+  pl_db.terms.push({id:uid(), name, venue, classes: defaultClasses});
+  await savePLDB(); render(); showToast(`✅ '${name}' 생성 완료 (기본 반 ${defaultClasses.length}개 자동 추가)`,'success');
 };
 window.deletePLTerm=function(tid){
   const t=getPLTerm(tid);
@@ -2122,6 +2147,7 @@ function renderPLClassPage() {
   const cls=getPLClassDef(termId,classId)||getPLClass('',classId);
   if(!cls) return `<div class="empty-state">반을 찾을 수 없습니다</div>`;
   const data=getPLClassData(classId);
+  const msgHistory = (data.sendHistory||[]).slice().sort((a,b)=>b.sentAt-a.sentAt).slice(0,20);
   return `
     <div class="page-title-row">
       <div>
@@ -2137,15 +2163,106 @@ function renderPLClassPage() {
       </div>
       <button class="btn btn-pl-outline btn-sm" onclick="window.openPLAddStudent()">+ 학생 추가</button>
     </div>
-    <div class="pl-layout">
+
+    <div class="layout">
+      <!-- 왼쪽: 학생 탭 + 문자 입력 -->
       <div>
-        <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.05em;">학생 목록 (${data.students.length}명)</div>
-        <div class="pl-student-list" id="plStudentList"></div>
+        <!-- 학생 탭 -->
+        <div class="card" style="margin-bottom:16px;">
+          <div class="card-header" style="justify-content:space-between;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <div class="card-icon icon-students">📋</div>
+              <div><div class="card-title">개별 내용 입력</div><div class="card-subtitle">학생별 코멘트 작성</div></div>
+            </div>
+          </div>
+          <div class="card-body" style="padding-top:8px;">
+            <div class="tab-container" id="plStudentTabs" style="margin-bottom:12px;"></div>
+            <div id="plInputPanel">
+              <div style="padding:20px;text-align:center;color:var(--text-secondary);font-size:13px;">
+                위에서 학생 탭을 선택해주세요
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 공통 내용 입력 -->
+        <div class="card">
+          <div class="card-header" style="justify-content:space-between;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <div class="card-icon">🗓️</div>
+              <div><div class="card-title">공통 내용 입력</div><div class="card-subtitle">날짜·회차는 학생별로 개별 입력</div></div>
+            </div>
+            <button class="btn btn-outline btn-sm" onclick="window.resetPLClassInput()">↺ 초기화</button>
+          </div>
+          <div class="card-body">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+              <div class="field"><label>수업 날짜</label>
+                <input type="text" id="plClassDate" placeholder="예: 6/15(화)" value="${escapeHtml(data.currentDate||'')}" oninput="window.onPLClassDateChange()">
+              </div>
+              <div class="field"><label>공통 회차 <span style="font-size:11px;font-weight:400;color:var(--text-secondary);">(개별 덮어쓰기 가능)</span></label>
+                <input type="text" id="plClassSession" placeholder="예: 3" oninput="window.updatePLPreview(plView.studentId)">
+              </div>
+            </div>
+            <div class="field"><label>L-Class 진도 (공통)</label>
+              <textarea id="plClassLclass" placeholder="공통 진도 내용 (없으면 개별 입력)" style="min-height:70px;" oninput="window.updatePLPreview(plView.studentId)"></textarea>
+            </div>
+            <div class="field"><label>가정학습 과제 (공통)</label>
+              <textarea id="plClassHw" placeholder="공통 과제 내용 (없으면 개별 입력)" style="min-height:60px;" oninput="window.updatePLPreview(plView.studentId)"></textarea>
+            </div>
+          </div>
+        </div>
       </div>
-      <div><div id="plInputPanel">
-        <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:30px;text-align:center;color:var(--text-secondary);">← 왼쪽에서 학생을 선택해주세요</div>
-      </div></div>
+
+      <!-- 오른쪽: 미리보기 + 발송목록 -->
+      <div>
+        <!-- 자동 생성 문자 -->
+        <div class="card" style="margin-bottom:16px;">
+          <div class="card-header">
+            <div class="card-icon" style="background:#FFF3E0;">💬</div>
+            <div><div class="card-title">자동 생성 문자</div><div class="card-subtitle">현재 선택된 학생의 문자</div></div>
+          </div>
+          <div class="card-body">
+            <div class="pl-result-box" id="plClassPreview" style="min-height:160px;">
+              학생을 선택하면 문자가 생성됩니다
+            </div>
+            <div class="actions" style="margin-top:12px;">
+              <button class="btn btn-pl" onclick="window.copyPLMsg(plView.studentId)">📋 복사</button>
+              <button class="btn btn-success" onclick="window.markPLSent(plView.studentId)">✅ 발송목록에 저장</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 전체 학생 발송 목록 -->
+        <div class="card">
+          <div class="card-header" style="justify-content:space-between;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <div class="card-icon icon-students">📨</div>
+              <div><div class="card-title">전체 학생 문자 목록</div><div class="card-subtitle">저장된 발송 내역 (날짜 · 학생이름)</div></div>
+            </div>
+            <button class="btn btn-outline btn-sm" onclick="window.openPLStatsModal('${termId}','${classId}')">전체보기</button>
+          </div>
+          <div class="card-body" style="padding:0;">
+            ${msgHistory.length===0
+              ? `<div style="padding:20px;text-align:center;color:var(--text-secondary);font-size:13px;">발송된 문자가 없습니다</div>`
+              : `<table class="msg-table">
+                  <thead><tr><th class="col-date">날짜</th><th>학생</th><th>내용</th><th></th></tr></thead>
+                  <tbody>
+                    ${msgHistory.map(h=>`
+                      <tr class="clickable" onclick="window.viewPLMsg(${JSON.stringify(JSON.stringify(h))})">
+                        <td class="col-date" style="white-space:nowrap;">${escapeHtml(h.date)}</td>
+                        <td style="font-weight:600;white-space:nowrap;">${escapeHtml(h.studentName)}</td>
+                        <td class="col-full">${escapeHtml((h.text||'').replace(/\n/g,' ').slice(0,35))}...</td>
+                        <td><button class="btn btn-outline btn-sm" onclick="event.stopPropagation();navigator.clipboard.writeText(${JSON.stringify(h.text||'')}).then(()=>showToast('✅ 복사됨','success'))">복사</button></td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>`
+            }
+          </div>
+        </div>
+      </div>
     </div>
+
     <div id="plAddStudentModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:400;align-items:center;justify-content:center;">
       <div style="background:#fff;border-radius:16px;padding:32px;max-width:420px;width:90%;max-height:80vh;overflow-y:auto;">
         <h3 style="margin-bottom:20px;font-size:16px;">학생 추가</h3>
@@ -2163,9 +2280,50 @@ function renderPLClassPage() {
           <button class="btn btn-outline" onclick="document.getElementById('plAddStudentModal').style.display='none';" style="flex:1;">취소</button>
         </div>
       </div>
-    </div>`;
+    </div>
+  `;
 }
-function initPLClassPage(){renderPLStudentList();if(plView.studentId)window.selectPLStudent(plView.studentId);}
+
+function initPLClassPage() {
+  renderPLStudentTabs();
+  if (plView.studentId) window.selectPLStudent(plView.studentId);
+}
+
+// Bloomath처럼 탭 렌더링
+function renderPLStudentTabs() {
+  const classId=view.plClassId; const data=getPLClassData(classId);
+  const tabs=document.getElementById('plStudentTabs'); if(!tabs)return;
+  if(data.students.length===0){
+    tabs.innerHTML=`<span style="font-size:12.5px;color:var(--text-secondary);">학생을 추가해주세요</span>`;
+    return;
+  }
+  const sorted=data.students.slice().sort((a,b)=>a.name.localeCompare(b.name,'ko'));
+  tabs.innerHTML=sorted.map(s=>{
+    const isSent=pl_db.students[s.id]?.sentLog?.[classId+'_'+(data.currentDate||'')]||false;
+    return `<button class="tab-btn ${s.id===plView.studentId?'active':''}" onclick="window.selectPLStudent('${s.id}')"
+      style="${isSent?'border-color:#10B981;color:#10B981;':''}">
+      ${escapeHtml(s.name)} ${isSent?'✓':''}
+    </button>`;
+  }).join('');
+}
+
+window.onPLClassDateChange = function() {
+  const date = document.getElementById('plClassDate')?.value || '';
+  const classId = view.plClassId;
+  if (pl_db.classes[classId]) pl_db.classes[classId].currentDate = date;
+  renderPLStudentTabs();
+  if (plView.studentId) window.updatePLPreview(plView.studentId);
+};
+
+window.resetPLClassInput = function() {
+  showConfirm('공통 입력 내용을 초기화할까요?', () => {
+    ['plClassDate','plClassSession','plClassLclass','plClassHw'].forEach(id=>{
+      const el=document.getElementById(id); if(el) el.value='';
+    });
+    if(plView.studentId) window.updatePLPreview(plView.studentId);
+    showToast('↺ 초기화되었습니다','success');
+  });
+};
 function renderPLStudentList(){
   const classId=view.plClassId; const data=getPLClassData(classId);
   const list=document.getElementById('plStudentList'); if(!list)return;
@@ -2201,55 +2359,67 @@ window.confirmPLAddStudent=async function(){
     period:document.getElementById('plAddPeriod').value.trim(),endMonth:document.getElementById('plAddEndMonth').value.trim(),
     memo:document.getElementById('plAddMemo').value.trim(),sentLog:{}};
   await savePLDB(); document.getElementById('plAddStudentModal').style.display='none';
-  renderPLStudentList(); showToast(`✅ '${name}' 추가 완료`,'success');
+  renderPLStudentTabs(); showToast(`✅ '${name}' 추가 완료`,'success');
 };
 window.removePLStudent=function(sid){
   const s=pl_db.students[sid];
   showConfirm(`'${s?.name}' 학생을 이 반에서 삭제할까요?`,async()=>{
     const data=getPLClassData(view.plClassId); data.students=data.students.filter(x=>x.id!==sid);
-    await savePLDB(); renderPLStudentList(); showToast('🗑️ 삭제됨');
+    await savePLDB(); renderPLStudentTabs(); showToast('🗑️ 삭제됨');
   });
 };
 window.selectPLStudent=function(sid){
   plView.studentId=sid; const stu=pl_db.students[sid]; if(!stu)return;
   const classId=view.plClassId; const data=getPLClassData(classId);
-  renderPLStudentList();
+  renderPLStudentTabs(); // 탭 활성화 상태 갱신
   const session=data.sessions?.find(s=>s.studentId===sid)||{};
+
   document.getElementById('plInputPanel').innerHTML=`
-    <div class="card">
-      <div class="card-header" style="justify-content:space-between;">
-        <div style="display:flex;align-items:center;gap:10px;">
-          <div class="card-icon" style="background:#FFF3E0;">⭐</div>
-          <div><div class="card-title">${escapeHtml(stu.name)}</div>
-          <div class="card-subtitle">${escapeHtml(stu.course||'')} · ${escapeHtml(stu.grade||'')} · ${escapeHtml(stu.school||'')}</div></div>
-        </div>
-        <div style="display:flex;gap:6px;">
-          <button class="btn btn-pl-outline btn-sm" onclick="window.resetPLInput('${sid}')">↺ 초기화</button>
-          <button class="btn btn-pl-outline btn-sm" onclick="window.plGo('student','${sid}','${escapeHtml(stu.name)}')">학생 정보</button>
-        </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+      <div>
+        <div style="font-weight:700;font-size:14px;">${escapeHtml(stu.name)}</div>
+        <div style="font-size:12px;color:var(--text-secondary);">${escapeHtml(stu.course||'')} · ${escapeHtml(stu.grade||'')} · ${escapeHtml(stu.school||'')}</div>
       </div>
-      <div class="card-body">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
-          <div class="field"><label>수업 날짜</label><input type="text" id="plDate_${sid}" placeholder="예: 6/15(화)" value="${escapeHtml(data.currentDate||'')}" oninput="window.updatePLPreview('${sid}')"></div>
-          <div class="field"><label>회차</label><input type="text" id="plSess_${sid}" placeholder="예: 3" value="${escapeHtml(String(session.sessionNum||''))}" oninput="window.updatePLPreview('${sid}')"></div>
-        </div>
-        <div class="field"><label>L-Class 진도</label><textarea id="plLC_${sid}" placeholder="진도 내용" style="min-height:80px;" oninput="window.updatePLPreview('${sid}')">${escapeHtml(session.lclass||'')}</textarea></div>
-        <div class="field"><label>가정학습 과제</label><textarea id="plHW_${sid}" placeholder="예: ~p.109" style="min-height:60px;" oninput="window.updatePLPreview('${sid}')">${escapeHtml(session.homework||'')}</textarea></div>
-        <div class="field"><label>코멘트</label><textarea id="plCmt_${sid}" placeholder="오늘 수업 내용, 칭찬, 주의사항 등" style="min-height:100px;" oninput="window.updatePLPreview('${sid}')">${escapeHtml(session.comment||'')}</textarea></div>
-        <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.04em;">문자 미리보기</div>
-        <div class="pl-result-box" id="plPrev_${sid}"></div>
-        <div class="actions" style="margin-top:12px;">
-          <button class="btn btn-pl" onclick="window.copyPLMsg('${sid}')">📋 복사</button>
-          <button class="btn btn-success" onclick="window.markPLSent('${sid}')">✅ 발송 완료</button>
-          <button class="btn btn-outline btn-sm" onclick="window.savePLSess('${sid}')">💾 임시저장</button>
-        </div>
+      <div style="display:flex;gap:6px;">
+        <button class="btn btn-pl-outline btn-sm" onclick="window.resetPLInput('${sid}')">↺ 초기화</button>
+        <button class="btn btn-danger btn-sm" onclick="window.removePLStudent('${sid}')" style="padding:4px 10px;font-size:11px;">삭제</button>
       </div>
-    </div>`;
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+      <div class="field"><label>개별 회차 <span style="font-size:10px;color:var(--text-secondary);">(공통 회차 덮어씀)</span></label>
+        <input type="text" id="plSess_${sid}" placeholder="예: 3" value="${escapeHtml(String(session.sessionNum||''))}" oninput="window.updatePLPreview('${sid}')">
+      </div>
+    </div>
+    <div class="field"><label>개별 L-Class 진도 <span style="font-size:10px;color:var(--text-secondary);">(공통 덮어씀)</span></label>
+      <textarea id="plLC_${sid}" placeholder="개별 진도 (공통과 다를 때만)" style="min-height:60px;" oninput="window.updatePLPreview('${sid}')">${escapeHtml(session.lclass||'')}</textarea>
+    </div>
+    <div class="field"><label>개별 과제 <span style="font-size:10px;color:var(--text-secondary);">(공통 덮어씀)</span></label>
+      <textarea id="plHW_${sid}" placeholder="개별 과제 (공통과 다를 때만)" style="min-height:50px;" oninput="window.updatePLPreview('${sid}')">${escapeHtml(session.homework||'')}</textarea>
+    </div>
+    <div class="field"><label>코멘트</label>
+      <textarea id="plCmt_${sid}" placeholder="오늘 수업 내용, 칭찬, 주의사항 등" style="min-height:90px;" oninput="window.updatePLPreview('${sid}')">${escapeHtml(session.comment||'')}</textarea>
+    </div>
+  `;
   window.updatePLPreview(sid);
 };
+
+window.updatePLPreview=function(sid){
+  if(!sid) return;
+  const stu=pl_db.students[sid]; if(!stu)return;
+  const g=id=>document.getElementById(id)?.value||'';
+  // 개별값이 있으면 우선, 없으면 공통값 사용
+  const date    = g('plClassDate');
+  const sessNum = g('plSess_'+sid)  || g('plClassSession');
+  const lclass  = g('plLC_'+sid)    || g('plClassLclass');
+  const hw      = g('plHW_'+sid)    || g('plClassHw');
+  const comment = g('plCmt_'+sid);
+  const msg = buildPLMsg(stu, date, sessNum, lclass, hw, comment);
+  const p=document.getElementById('plClassPreview');
+  if(p) p.textContent=msg;
+};
 window.resetPLInput=function(sid){
-  showConfirm('입력 내용을 모두 초기화할까요?',()=>{
-    ['plLC_','plHW_','plCmt_'].forEach(p=>{const e=document.getElementById(p+sid);if(e)e.value='';});
+  showConfirm('개별 입력 내용을 초기화할까요?',()=>{
+    ['plLC_','plHW_','plCmt_','plSess_'].forEach(p=>{const e=document.getElementById(p+sid);if(e)e.value='';});
     window.updatePLPreview(sid); showToast('↺ 초기화되었습니다','success');
   });
 };
@@ -2262,37 +2432,113 @@ function buildPLMsg(stu,date,sn,lc,hw,cmt){
   if(cmt) m+=cmt;
   return m.trim();
 }
-window.updatePLPreview=function(sid){
-  const stu=pl_db.students[sid]; if(!stu)return;
+function getPLCurrentMsg(sid) {
+  const stu=pl_db.students[sid]; if(!stu) return '';
   const g=id=>document.getElementById(id)?.value||'';
-  const p=document.getElementById('plPrev_'+sid);
-  if(p) p.textContent=buildPLMsg(stu,g('plDate_'+sid),g('plSess_'+sid),g('plLC_'+sid),g('plHW_'+sid),g('plCmt_'+sid));
-};
+  return buildPLMsg(stu, g('plClassDate'), g('plSess_'+sid)||g('plClassSession'),
+    g('plLC_'+sid)||g('plClassLclass'), g('plHW_'+sid)||g('plClassHw'), g('plCmt_'+sid));
+}
 window.copyPLMsg=function(sid){
-  const stu=pl_db.students[sid]; const g=id=>document.getElementById(id)?.value||'';
-  navigator.clipboard.writeText(buildPLMsg(stu,g('plDate_'+sid),g('plSess_'+sid),g('plLC_'+sid),g('plHW_'+sid),g('plCmt_'+sid)))
-    .then(()=>showToast('✅ 복사되었습니다!','success'));
+  if(!sid){showToast('⚠️ 학생을 먼저 선택해주세요');return;}
+  navigator.clipboard.writeText(getPLCurrentMsg(sid)).then(()=>showToast('✅ 복사되었습니다!','success'));
 };
 window.savePLSess=async function(sid){
-  const data=getPLClassData(view.plClassId); const g=id=>document.getElementById(id)?.value||'';
-  const date=g('plDate_'+sid); data.currentDate=date;
-  const entry={studentId:sid,date,sessionNum:g('plSess_'+sid),lclass:g('plLC_'+sid),homework:g('plHW_'+sid),comment:g('plCmt_'+sid)};
+  const data=getPLClassData(view.plClassId);
+  const g=id=>document.getElementById(id)?.value||'';
+  const date=g('plClassDate'); data.currentDate=date;
+  const entry={studentId:sid,date,sessionNum:g('plSess_'+sid)||g('plClassSession'),
+    lclass:g('plLC_'+sid)||g('plClassLclass'),homework:g('plHW_'+sid)||g('plClassHw'),comment:g('plCmt_'+sid)};
   if(!data.sessions)data.sessions=[]; const idx=data.sessions.findIndex(s=>s.studentId===sid);
   if(idx>=0)data.sessions[idx]=entry;else data.sessions.push(entry);
   await savePLDB(); showToast('💾 임시저장 완료','success');
 };
 window.markPLSent=async function(sid){
+  if(!sid){showToast('⚠️ 학생을 먼저 선택해주세요');return;}
   await window.savePLSess(sid);
-  const data=getPLClassData(view.plClassId); const date=data.currentDate||'';
+  const classId=view.plClassId; const data=getPLClassData(classId);
+  const date=data.currentDate||'';
   if(!pl_db.students[sid].sentLog)pl_db.students[sid].sentLog={};
-  pl_db.students[sid].sentLog[view.plClassId+'_'+date]=true;
+  pl_db.students[sid].sentLog[classId+'_'+date]=true;
   if(!data.sendHistory)data.sendHistory=[];
-  const stu=pl_db.students[sid]; const g=id=>document.getElementById(id)?.value||'';
-  const msg=buildPLMsg(stu,g('plDate_'+sid),g('plSess_'+sid),g('plLC_'+sid),g('plHW_'+sid),g('plCmt_'+sid));
+  const stu=pl_db.students[sid];
+  const g=id=>document.getElementById(id)?.value||'';
+  const msg=getPLCurrentMsg(sid);
   const ei=data.sendHistory.findIndex(h=>h.studentId===sid&&h.date===date);
-  const entry={id:uid(),studentId:sid,studentName:stu.name,date,sessionNum:g('plSess_'+sid),text:msg,sentAt:Date.now()};
+  const entry={id:uid(),studentId:sid,studentName:stu.name,date,
+    sessionNum:g('plSess_'+sid)||g('plClassSession'),text:msg,sentAt:Date.now()};
   if(ei>=0)data.sendHistory[ei]=entry;else data.sendHistory.push(entry);
-  await savePLDB(); renderPLStudentList(); showToast('✅ 발송 완료 기록됨','success');
+  await savePLDB();
+  renderPLStudentTabs();
+  // 발송목록 새로고침
+  const term=getPLTerm(view.plTermId); const cls=getPLClassDef(view.plTermId,classId);
+  if(cls) {
+    const msgHistory=(data.sendHistory||[]).slice().sort((a,b)=>b.sentAt-a.sentAt).slice(0,20);
+    const tbody=document.querySelector('.msg-table tbody');
+    if(tbody) {
+      // 목록 새로고침
+      render();
+      if(plView.studentId) window.selectPLStudent(plView.studentId);
+    }
+  }
+  showToast('✅ 발송 완료 기록됨','success');
+};
+
+/* PL 통계 모달 */
+window.openPLStatsModal = function(termId, classId) {
+  const cls = getPLClassDef(termId, classId);
+  const data = getPLClassData(classId);
+  const history = (data.sendHistory||[]).slice().sort((a,b)=>b.sentAt-a.sentAt);
+
+  // 학생별 발송 날짜 집계
+  const byStudent = {};
+  history.forEach(h => {
+    if(!byStudent[h.studentId]) byStudent[h.studentId]={name:h.studentName, dates:[]};
+    if(!byStudent[h.studentId].dates.includes(h.date)) byStudent[h.studentId].dates.push(h.date);
+  });
+  const stuList = Object.values(byStudent).sort((a,b)=>a.name.localeCompare(b.name,'ko'));
+
+  document.getElementById('modalTitle').textContent = `📊 ${cls?.name || ''} · 발송 통계`;
+  document.getElementById('modalContent').innerHTML = `
+    <div style="margin-bottom:16px;display:flex;gap:12px;">
+      <div style="flex:1;background:var(--primary-light);border-radius:10px;padding:14px;text-align:center;">
+        <div style="font-size:24px;font-weight:900;color:var(--primary);">${data.students?.length||0}</div>
+        <div style="font-size:12px;color:var(--text-secondary);">전체 학생</div>
+      </div>
+      <div style="flex:1;background:#FFF3E0;border-radius:10px;padding:14px;text-align:center;">
+        <div style="font-size:24px;font-weight:900;color:#F59E0B;">${history.length}</div>
+        <div style="font-size:12px;color:var(--text-secondary);">전체 발송</div>
+      </div>
+    </div>
+    ${stuList.length===0
+      ? `<div style="text-align:center;color:var(--text-secondary);padding:20px;">발송 이력이 없습니다</div>`
+      : `<table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead><tr style="background:var(--surface2);">
+            <th style="padding:8px 12px;text-align:center;width:50px;border-bottom:1px solid var(--border);">발송수</th>
+            <th style="padding:8px 12px;text-align:left;width:80px;border-bottom:1px solid var(--border);">학생</th>
+            <th style="padding:8px 12px;text-align:left;border-bottom:1px solid var(--border);">발송 날짜</th>
+          </tr></thead>
+          <tbody>
+            ${stuList.map(s=>`
+              <tr style="border-bottom:1px solid var(--border);">
+                <td style="padding:9px 12px;text-align:center;">
+                  <span style="display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:${s.dates.length>0?'#F59E0B':'var(--border)'};color:${s.dates.length>0?'#fff':'var(--text-secondary)'};font-size:12px;font-weight:700;">${s.dates.length}</span>
+                </td>
+                <td style="padding:9px 12px;font-weight:700;">${escapeHtml(s.name)}</td>
+                <td style="padding:9px 12px;">
+                  <div style="display:flex;flex-wrap:wrap;gap:4px;">
+                    ${s.dates.sort().map(d=>`
+                      <span style="background:var(--success-light);color:var(--success);border:1px solid #A7F3D0;padding:2px 8px;border-radius:10px;font-size:11.5px;font-weight:600;">${escapeHtml(d)}</span>
+                    `).join('')}
+                  </div>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>`
+    }
+  `;
+  document.getElementById('modalFooter').innerHTML=`<button class="btn btn-outline" onclick="window.closeModal()">닫기</button>`;
+  document.getElementById('modal').style.display='block';
 };
 
 /* PL 전체 학생 명단 + 수강현황 */
@@ -2418,6 +2664,17 @@ window.viewPLMsg=function(hStr){
 };
 window.editPLStu=function(sid){
   const stu=pl_db.students[sid]; if(!stu)return;
+  // 이 학생이 속한 반 목록
+  const myClassIds=new Set();
+  pl_db.terms.forEach(term=>term.classes.forEach(cls=>{
+    if(pl_db.classes[cls.id]?.students?.some(s=>s.id===sid)) myClassIds.add(cls.id);
+  }));
+  // 현재 분기의 모든 반 (수강 추가 가능 목록)
+  const allTermClasses=[];
+  pl_db.terms.forEach(term=>term.classes.forEach(cls=>{
+    allTermClasses.push({termId:term.id,termName:term.name,cls});
+  }));
+
   document.getElementById('modalTitle').textContent=`학생 정보 수정 — ${stu.name}`;
   document.getElementById('modalContent').innerHTML=`
     <div style="display:flex;flex-direction:column;gap:12px;">
@@ -2428,12 +2685,59 @@ window.editPLStu=function(sid){
       <div><label>수강과정</label><input type="text" id="eCrs" value="${escapeHtml(stu.course||'')}" style="width:100%;"></div>
       <div><label>수업기간</label><input type="text" id="ePrd" value="${escapeHtml(stu.period||'')}" style="width:100%;"></div>
       <div><label>종료월</label><input type="text" id="eEnd" value="${escapeHtml(stu.endMonth||'')}" style="width:100%;"></div>
-      <div><label>특이사항</label><textarea id="eMemo" style="width:100%;min-height:80px;">${escapeHtml(stu.memo||'')}</textarea></div>
+      <div><label>특이사항</label><textarea id="eMemo" style="width:100%;min-height:60px;">${escapeHtml(stu.memo||'')}</textarea></div>
+      <!-- 수강반 관리 -->
+      <div style="border-top:1px solid var(--border);padding-top:12px;">
+        <label style="font-weight:700;font-size:13px;display:block;margin-bottom:8px;">📅 수강 중인 반</label>
+        <div id="myClassList" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
+          ${[...myClassIds].map(cid=>{
+            const cls=pl_db.terms.flatMap(t=>t.classes).find(c=>c.id===cid);
+            const term=pl_db.terms.find(t=>t.classes.some(c=>c.id===cid));
+            return cls?`<span style="background:var(--primary-light);color:var(--primary);border:1px solid #C7D2FE;padding:4px 10px;border-radius:10px;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:6px;">
+              ${escapeHtml(cls.name)} <span style="font-size:10px;color:var(--text-secondary);">${escapeHtml(term?.name||'')}</span>
+              <button onclick="window.removeStuFromClass('${sid}','${cid}')" style="background:none;border:none;color:#EF4444;cursor:pointer;font-size:14px;padding:0;line-height:1;">×</button>
+            </span>`:'';
+          }).join('') || '<span style="color:var(--text-secondary);font-size:12px;">없음</span>'}
+        </div>
+        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;">반 추가</label>
+        <div style="display:flex;gap:6px;">
+          <select id="eAddClass" style="flex:1;font-size:12px;">
+            <option value="">— 반 선택 —</option>
+            ${allTermClasses.filter(({cls})=>!myClassIds.has(cls.id)).map(({termId,termName,cls})=>
+              `<option value="${cls.id}">${escapeHtml(termName)} › ${escapeHtml(cls.name)}</option>`
+            ).join('')}
+          </select>
+          <button class="btn btn-pl btn-sm" onclick="window.addStuToClass('${sid}')">추가</button>
+        </div>
+      </div>
     </div>`;
   document.getElementById('modalFooter').innerHTML=`
     <button class="btn btn-primary" onclick="window.savePLStu('${sid}')">💾 저장</button>
     <button class="btn btn-outline" onclick="window.closeModal()">취소</button>`;
   document.getElementById('modal').style.display='block';
+};
+
+window.addStuToClass = async function(sid) {
+  const classId = document.getElementById('eAddClass').value;
+  if (!classId) { showToast('⚠️ 반을 선택해주세요'); return; }
+  const data = getPLClassData(classId);
+  if (data.students.some(s => s.id === sid)) { showToast('⚠️ 이미 수강 중인 반입니다'); return; }
+  const stu = pl_db.students[sid];
+  data.students.push({ id: sid, name: stu.name });
+  await savePLDB();
+  showToast('✅ 반 추가 완료', 'success');
+  window.editPLStu(sid); // 모달 새로고침
+};
+
+window.removeStuFromClass = async function(sid, classId) {
+  const cls = pl_db.terms.flatMap(t=>t.classes).find(c=>c.id===classId);
+  showConfirm(`'${cls?.name}' 반에서 삭제할까요?`, async () => {
+    const data = getPLClassData(classId);
+    data.students = data.students.filter(s => s.id !== sid);
+    await savePLDB();
+    showToast('🗑️ 반에서 삭제됨');
+    window.editPLStu(sid); // 모달 새로고침
+  });
 };
 window.savePLStu=async function(sid){
   const stu=pl_db.students[sid];
