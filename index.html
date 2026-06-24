@@ -2225,7 +2225,10 @@ function renderPLClassPage() {
                         <td class="col-date" style="white-space:nowrap;">${escapeHtml(h.date)}</td>
                         <td style="font-weight:600;white-space:nowrap;">${escapeHtml(h.studentName)}</td>
                         <td class="col-full">${escapeHtml((h.text||'').replace(/\n/g,' ').slice(0,35))}...</td>
-                        <td><button class="btn btn-outline btn-sm" onclick="event.stopPropagation();navigator.clipboard.writeText(window['_plMsg_${safeId}']||'').then(()=>showToast('✅ 복사됨','success'))">복사</button></td>
+                        <td style="white-space:nowrap;">
+                          <button class="btn btn-outline btn-sm" onclick="event.stopPropagation();navigator.clipboard.writeText(window['_plMsg_${safeId}']||'').then(()=>showToast('✅ 복사됨','success'))">복사</button>
+                          <button class="btn btn-danger btn-sm" style="margin-left:3px;" onclick="event.stopPropagation();window.deletePLSentMsg('${classId}','${h.id}')">삭제</button>
+                        </td>
                       </tr>`;
                     }).join('')}
                   </tbody>
@@ -2500,33 +2503,63 @@ window.savePLSess=async function(sid){
 window.markPLSent=async function(sid){
   const target = sid || plView.studentId;
   if(!target){showToast('⚠️ 학생을 먼저 선택해주세요');return;}
-  await window.savePLSess(target);
+
   const classId=view.plClassId; const data=getPLClassData(classId);
   const g=id=>document.getElementById(id)?.value||'';
   const dateRaw=g('plDate_'+target)||data.currentDate||'';
-  data.currentDate=dateRaw;
   const dateDisplay = formatPLDate(dateRaw);
+  data.currentDate=dateRaw;
+
+  // 세션 저장 (토스트 없이)
+  const entry={
+    studentId:target, date:dateRaw,
+    sessionNum:g('plSess_'+target),
+    course:    g('plCourse_'+target),
+    lclass:    g('plLC_'+target),
+    homework:  g('plHW_'+target),
+    testScore: g('plTestScore_'+target),
+    testMax:   g('plTestMax_'+target),
+    comment:   g('plCmt_'+target)
+  };
+  if(!data.sessions)data.sessions=[];
+  const si=data.sessions.findIndex(s=>s.studentId===target);
+  if(si>=0)data.sessions[si]=entry;else data.sessions.push(entry);
+
+  // 발송 이력 저장
   if(!pl_db.students[target].sentLog)pl_db.students[target].sentLog={};
   pl_db.students[target].sentLog[classId+'_'+dateRaw]=true;
   if(!data.sendHistory)data.sendHistory=[];
   const stu=pl_db.students[target];
   const msg=getPLCurrentMsg(target);
-  const ei=data.sendHistory.findIndex(h=>h.studentId===target&&h.date===date);
-  const entry={id:uid(),studentId:target,studentName:stu.name,date:dateDisplay,
+  const ei=data.sendHistory.findIndex(h=>h.studentId===target && h.date===dateDisplay);
+  const histEntry={id:uid(),studentId:target,studentName:stu.name,date:dateDisplay,
     sessionNum:g('plSess_'+target),text:msg,sentAt:Date.now()};
-  if(ei>=0)data.sendHistory[ei]=entry;else data.sendHistory.push(entry);
+  if(ei>=0)data.sendHistory[ei]=histEntry;else data.sendHistory.push(histEntry);
+
   await savePLDB();
-  renderPLStudentTabs();
-  // 발송목록 새로고침
-  const msgHistory=(data.sendHistory||[]).slice().sort((a,b)=>b.sentAt-a.sentAt).slice(0,20);
-  const tbl=document.querySelector('#plSentList');
-  // 간단히 전체 re-render
-  view={page:'pl-class',plTermId:view.plTermId,plClassId:classId};
-  const app=document.getElementById('app');
-  app.innerHTML=renderPLClassPage();
+
+  // 페이지 새로고침 후 학생 선택 복원
+  const termId=view.plTermId;
+  view={page:'pl-class',plTermId:termId,plClassId:classId};
+  document.getElementById('app').innerHTML=renderPLClassPage();
   initPLClassPage();
   window.selectPLStudent(target);
-  showToast('✅ 발송 완료 기록됨','success');
+  showToast('✅ 발송목록에 저장되었습니다','success');
+};
+
+/* PL 발송 이력 삭제 */
+window.deletePLSentMsg = function(classId, msgId) {
+  showConfirm('이 발송 문자를 삭제할까요?', async () => {
+    const data = getPLClassData(classId);
+    data.sendHistory = (data.sendHistory||[]).filter(h => h.id !== msgId);
+    await savePLDB();
+    const termId = view.plTermId;
+    view = {page:'pl-class', plTermId:termId, plClassId:classId};
+    document.getElementById('app').innerHTML = renderPLClassPage();
+    initPLClassPage();
+    if (plView.studentId) window.selectPLStudent(plView.studentId);
+    showToast('🗑️ 삭제되었습니다');
+  });
 };
 
 /* PL 통계 모달 */
