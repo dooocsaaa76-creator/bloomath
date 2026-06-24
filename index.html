@@ -1880,7 +1880,9 @@ function startPLRealtimeSync() {
       const remote = snap.data();
       pl_db = { classes: remote.classes || {}, students: remote.students || {} };
     } else {
+      // 문서가 없으면 빈 문서 자동 생성
       pl_db = { classes: {}, students: {} };
+      setDoc(PL_DOC, { classes: {}, students: {} }).catch(e => console.error('PL 초기문서 생성 오류:', e));
     }
     if (!isPLInitialized) {
       isPLInitialized = true;
@@ -2530,6 +2532,21 @@ window.viewPLHistory = function(hJson) {
 =========================================================== */
 startRealtimeSync();
 startPLRealtimeSync();
+
+// 안전장치: 5초 후에도 로딩 중이면 강제로 홈 화면 표시
+setTimeout(() => {
+  if (!isInitialized) {
+    console.warn('Firebase 연결 지연 — 강제 진입');
+    db = { quarters: [] };
+    pl_db = { classes: {}, students: {} };
+    isInitialized = true;
+    isPLInitialized = true;
+    hideLoading();
+    view = { page: 'main' };
+    render();
+    showToast('⚠️ 연결이 지연되고 있습니다. 새로고침을 시도해주세요.');
+  }
+}, 5000);
 </script>
 </body>
 </html>
