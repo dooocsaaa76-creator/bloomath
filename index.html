@@ -2220,8 +2220,9 @@ function renderPLClassPage() {
                     ${msgHistory.map((h,hi)=>{
                       const safeId = 'plh_' + (h.id || hi);
                       window['_plMsg_'+safeId] = h.text||'';
+                      const metaJson = JSON.stringify(JSON.stringify({date:h.date, studentName:h.studentName, className:h.studentName}));
                       return `
-                      <tr class="clickable" onclick="window.viewPLMsg(${JSON.stringify(JSON.stringify(h))})">
+                      <tr class="clickable" onclick="window.viewPLMsgById('${safeId}',${metaJson})">
                         <td class="col-date" style="white-space:nowrap;">${escapeHtml(h.date)}</td>
                         <td style="font-weight:600;white-space:nowrap;">${escapeHtml(h.studentName)}</td>
                         <td class="col-full">${escapeHtml((h.text||'').replace(/\n/g,' ').slice(0,35))}...</td>
@@ -2450,8 +2451,8 @@ function buildPLMsg(course, name, date, sn, lc, hw, testScore, testMax, cmt) {
   let m = '';
   if (date) m += `${date}\n`;
   m += `${n}학생의 ${cr} ${sn ? sn+'회차' : ''} 수업안내\n\n`;
-  if (lc) m += `L-Class진도\n${lc}\n\n`;
-  if (hw) m += `가정학습 과제\n${hw}\n\n`;
+  if (lc) m += `■ L-Class진도\n${lc}\n\n`;
+  if (hw) m += `■ 가정학습 과제\n${hw}\n\n`;
   if (testScore) m += `일일TEST: ${testScore}점${testMax ? ` / ${testMax}점 만점` : ''}\n\n`;
   if (cmt) m += cmt;
   return m.trim();
@@ -2719,25 +2720,46 @@ function renderPLStudentPage(){
           :`<table class="msg-table">
             <thead><tr><th class="col-date">날짜</th><th>반</th><th>회차</th><th>내용</th><th></th></tr></thead>
             <tbody>
-              ${hist.map(h=>`<tr class="clickable" onclick="window.viewPLMsg(${JSON.stringify(JSON.stringify(h))})">
-                <td class="col-date">${escapeHtml(h.date)}</td>
-                <td>${escapeHtml(h.className)}</td>
-                <td style="text-align:center;">${escapeHtml(h.sessionNum||'-')}회</td>
-                <td class="col-full">${escapeHtml((h.text||'').replace(/\n/g,' ').slice(0,40))}...</td>
-                <td><button class="btn btn-outline btn-sm" onclick="event.stopPropagation();navigator.clipboard.writeText(${JSON.stringify(h.text||'')}).then(()=>showToast('✅ 복사됨','success'))">복사</button></td>
-              </tr>`).join('')}
+              ${hist.map((h,hi)=>{
+                const sid2 = 'pls_'+hi;
+                window['_plMsg_'+sid2] = h.text||'';
+                return `<tr class="clickable" onclick="window.viewPLMsgById('${sid2}',${JSON.stringify(JSON.stringify({date:h.date,studentName:h.studentName,className:h.className}))})">
+                  <td class="col-date">${escapeHtml(h.date)}</td>
+                  <td>${escapeHtml(h.className)}</td>
+                  <td style="text-align:center;">${escapeHtml(h.sessionNum||'-')}회</td>
+                  <td class="col-full">${escapeHtml((h.text||'').replace(/\n/g,' ').slice(0,40))}...</td>
+                  <td style="white-space:nowrap;">
+                    <button class="btn btn-outline btn-sm" onclick="event.stopPropagation();navigator.clipboard.writeText(window['_plMsg_${sid2}']||'').then(()=>showToast('✅ 복사됨','success'))">복사</button>
+                  </td>
+                </tr>`;
+              }).join('')}
             </tbody>
           </table>`}
       </div>
     </div>`;
 }
+window.viewPLMsgById=function(msgKey, metaStr){
+  try{
+    const text = window['_plMsg_'+msgKey]||'';
+    const meta = JSON.parse(metaStr);
+    document.getElementById('modalTitle').textContent=`${meta.date||''} · ${meta.studentName||''} · ${meta.className||''}`;
+    document.getElementById('modalContent').innerHTML=`<pre style="white-space:pre-wrap;word-break:break-all;font-family:'Noto Sans KR',sans-serif;font-size:13.5px;line-height:1.75;background:var(--surface2);padding:16px;border-radius:8px;">${escapeHtml(text)}</pre>`;
+    window['_modalMsg'] = text;
+    document.getElementById('modalFooter').innerHTML=`
+      <button class="btn btn-primary" onclick="navigator.clipboard.writeText(window['_modalMsg']||'').then(()=>showToast('✅ 복사됨','success'))">📋 복사</button>
+      <button class="btn btn-outline" onclick="window.closeModal()">닫기</button>`;
+    document.getElementById('modal').style.display='block';
+  }catch(e){showToast('오류: '+e.message);}
+};
+
 window.viewPLMsg=function(hStr){
   try{
     const h=JSON.parse(hStr);
-    document.getElementById('modalTitle').textContent=`${h.date} · ${h.studentName} · ${h.className}`;
+    document.getElementById('modalTitle').textContent=`${h.date||''} · ${h.studentName||''} · ${h.className||''}`;
     document.getElementById('modalContent').innerHTML=`<pre style="white-space:pre-wrap;word-break:break-all;font-family:'Noto Sans KR',sans-serif;font-size:13.5px;line-height:1.75;background:var(--surface2);padding:16px;border-radius:8px;">${escapeHtml(h.text||'')}</pre>`;
+    window['_modalMsg'] = h.text||'';
     document.getElementById('modalFooter').innerHTML=`
-      <button class="btn btn-primary" onclick="navigator.clipboard.writeText(${JSON.stringify(h.text||'')}).then(()=>showToast('✅ 복사됨','success'))">📋 복사</button>
+      <button class="btn btn-primary" onclick="navigator.clipboard.writeText(window['_modalMsg']||'').then(()=>showToast('✅ 복사됨','success'))">📋 복사</button>
       <button class="btn btn-outline" onclick="window.closeModal()">닫기</button>`;
     document.getElementById('modal').style.display='block';
   }catch(e){showToast('오류: '+e.message);}
