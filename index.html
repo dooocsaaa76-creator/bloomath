@@ -1056,6 +1056,54 @@ function renderQuarterPage() {
   `;
   }).join('');
 
+  // 반별 학생 명단 테이블
+  const activeClasses = q.classes.filter(c => c.students.length > 0);
+  const maxStudents = activeClasses.length > 0 ? Math.max(...activeClasses.map(c => c.students.length)) : 0;
+
+  const rosterTable = activeClasses.length === 0 ? '' : `
+    <div class="card" style="margin-top:24px;overflow-x:auto;">
+      <div class="card-header">
+        <div class="card-icon icon-students">👥</div>
+        <div><div class="card-title">반별 학생 명단</div><div class="card-subtitle">학생명 클릭 시 문자 입력 화면으로 이동</div></div>
+      </div>
+      <div class="card-body" style="padding:0;overflow-x:auto;">
+        <table style="width:auto;min-width:100%;border-collapse:collapse;font-size:13px;">
+          <thead>
+            <tr>
+              ${activeClasses.map(c => `
+                <td style="padding:10px 16px;text-align:center;background:var(--primary-light);border:1px solid var(--border);font-weight:700;font-size:13px;color:var(--primary);white-space:nowrap;min-width:110px;">
+                  <div style="cursor:pointer;" onclick="window._go('class','${q.id}','${c.id}')">${escapeHtml(c.name)}</div>
+                  ${c.teacher ? `<div style="font-size:11px;font-weight:600;color:#F59E0B;margin-top:2px;">👩‍🏫 ${escapeHtml(c.teacher)}</div>` : ''}
+                </td>
+              `).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${Array.from({length: maxStudents}, (_,rowIdx) => `
+              <tr>
+                ${activeClasses.map(c => {
+                  // 가나다 정렬
+                  const sorted = c.students.slice().sort((a,b) => a.name.localeCompare(b.name,'ko'));
+                  const stu = sorted[rowIdx];
+                  if (!stu) return `<td style="border:1px solid var(--border);padding:8px 12px;background:var(--surface2);"></td>`;
+                  const stuIdx = c.students.findIndex(s => s.id === stu.id);
+                  const grade = stu.grade ? stu.grade.replace('초','').replace('중','').replace('고','') : '';
+                  return `<td style="border:1px solid var(--border);padding:8px 12px;text-align:center;">
+                    <span onclick="window.goToStudent('${q.id}','${c.id}',${stuIdx})"
+                      style="cursor:pointer;font-weight:600;color:var(--primary);text-decoration:underline;text-underline-offset:2px;"
+                      onmouseover="this.style.color='var(--primary-dark)'"
+                      onmouseout="this.style.color='var(--primary)'"
+                    >${escapeHtml(stu.name)}${grade?`<span style="font-size:10px;color:var(--text-secondary);margin-left:2px;">${grade}</span>`:''}</span>
+                  </td>`;
+                }).join('')}
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
   return `
     <div class="page-title-row">
       <div>
@@ -1073,10 +1121,9 @@ function renderQuarterPage() {
       <select id="copyFromSelect" style="width:320px;flex-shrink:0;">
         <option value="">— 복사 안 함 —</option>
         ${(() => {
-          // 현재 분기를 제외하고, 가장 최근(직전) 분기 하나만 표시
           const others = db.quarters.filter(qx => qx.id !== view.quarterId);
           if (others.length === 0) return '';
-          const prevQ = others[others.length - 1]; // 배열 마지막 = 가장 최근 추가된 분기
+          const prevQ = others[others.length - 1];
           return prevQ.classes.map(cx =>
             `<option value="${prevQ.id}__${cx.id}">${escapeHtml(prevQ.name)} › ${escapeHtml(cx.name)} (${cx.students.filter(s=>s.name).length}명)</option>`
           ).join('');
@@ -1086,8 +1133,17 @@ function renderQuarterPage() {
     </div>
     <div class="box-grid">${boxes}</div>
     ${q.classes.length === 0 ? `<div class="empty-state"><div class="big-emoji">📘</div>반을 선택하고 '반생성' 버튼을 눌러보세요</div>` : ''}
+    ${rosterTable}
   `;
 }
+
+// 학생명 클릭 → 해당 반 문자입력 화면으로 이동 + 해당 학생 자동 선택
+window.goToStudent = function(qid, cid, stuIdx) {
+  currentStudentIdx = stuIdx;
+  studentMgmtOpen = false;
+  view = { page:'class', quarterId:qid, classId:cid };
+  render();
+};
 
 window.createClass = async function() {
   const name = document.getElementById('classNameSelect').value;
