@@ -2174,92 +2174,107 @@ function renderPLTerms() {
 function buildPLRosterTable(termId, term, rosterDays) {
   if (rosterDays.length === 0) return '';
 
-  let html = `<div class="card" style="margin-bottom:24px;overflow-x:auto;">
+  // 요일별 반 목록 수집
+  const dayClsMap = {};
+  rosterDays.forEach(day => {
+    dayClsMap[day] = sortClassesByTime(term.classes.filter(c => c.day === day));
+  });
+
+  // 전체 컬럼 목록 (요일 순서 유지)
+  const allCols = []; // { day, cls, isFirstOfDay }
+  rosterDays.forEach(day => {
+    dayClsMap[day].forEach((cls, ci) => {
+      allCols.push({ day, cls, isFirstOfDay: ci === 0 });
+    });
+  });
+
+  if (allCols.length === 0) return '';
+
+  // 각 컬럼별 학생 목록 (가나다 정렬)
+  const colStudents = allCols.map(({cls}) => {
+    const d = pl_db.classes[cls.id];
+    return (d?.students || []).slice().sort((a,b) => a.name.localeCompare(b.name,'ko'));
+  });
+  const maxRows = Math.max(...colStudents.map(s => s.length), 0);
+
+  // 요일별 colspan 계산
+  const dayColSpan = {};
+  rosterDays.forEach(day => { dayColSpan[day] = dayClsMap[day].length; });
+
+  // 단일 테이블 생성
+  const BORDER_DAY = 'border-left:2.5px solid #64748B;';
+  const CELL_W = 'min-width:72px;width:72px;'; // 촘촘한 열 폭
+
+  let html = `<div class="card" style="margin-bottom:24px;">
     <div class="card-header">
       <div class="card-icon" style="background:#FFF3E0;">👥</div>
       <div><div class="card-title">학생 명단</div><div class="card-subtitle">이름 클릭 시 문자 입력 화면으로 이동</div></div>
     </div>
     <div class="card-body" style="padding:0;overflow-x:auto;">
-      <table style="border-collapse:collapse;font-size:12.5px;min-width:100%;">`;
+      <table style="border-collapse:collapse;font-size:12px;table-layout:fixed;">
+        <!-- 행1: 요일 헤더 -->
+        <tr>
+          ${rosterDays.map((day, di) => {
+            const borderL = di > 0 ? BORDER_DAY : '';
+            const span = dayColSpan[day];
+            return `<td colspan="${span}" style="${borderL}${CELL_W}padding:6px 4px;text-align:center;background:#1E293B;color:#fff;font-weight:800;font-size:12px;letter-spacing:0.06em;">${day}요일</td>`;
+          }).join('')}
+        </tr>
+        <!-- 행2: 반 이름 -->
+        <tr>
+          ${allCols.map(({day, cls, isFirstOfDay}, ci) => {
+            const borderL = isFirstOfDay && ci > 0 ? BORDER_DAY : '';
+            const isB = cls.name.includes('1부B') || cls.name.includes('중고등B');
+            const bg = isB ? '#DC2626' : '#475569';
+            return `<td style="${borderL}${CELL_W}padding:5px 3px;text-align:center;background:${bg};color:#fff;font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
+              onclick="window.plGo('class','${termId}','${cls.id}')" title="${escapeHtml(cls.name)} (${escapeHtml(cls.time)})">
+              ${escapeHtml(cls.name)}
+            </td>`;
+          }).join('')}
+        </tr>
+        <!-- 행3: 시간 -->
+        <tr>
+          ${allCols.map(({day, cls, isFirstOfDay}, ci) => {
+            const borderL = isFirstOfDay && ci > 0 ? BORDER_DAY : '';
+            return `<td style="${borderL}${CELL_W}padding:3px 4px;text-align:center;background:#E2E8F0;font-size:10px;color:#475569;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+              ${escapeHtml(cls.time)}
+            </td>`;
+          }).join('')}
+        </tr>
+        <!-- 행4: 담임 -->
+        <tr>
+          ${allCols.map(({day, cls, isFirstOfDay}, ci) => {
+            const borderL = isFirstOfDay && ci > 0 ? BORDER_DAY : '';
+            return `<td style="${borderL}${CELL_W}padding:3px 4px;text-align:center;background:#F8FAFC;font-size:10px;color:#64748B;font-weight:600;border-bottom:1.5px solid #CBD5E1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+              ${cls.teacher ? escapeHtml(cls.teacher) : '-'}
+            </td>`;
+          }).join('')}
+        </tr>
+        <!-- 학생 행 -->
+        ${Array.from({length: maxRows + 2}, (_, row) => `
+          <tr>
+            ${allCols.map(({day, cls, isFirstOfDay}, ci) => {
+              const borderL = isFirstOfDay && ci > 0 ? BORDER_DAY : '';
+              const stu = colStudents[ci][row];
+              if (!stu) {
+                return `<td style="${borderL}${CELL_W}padding:5px 3px;border-top:1px solid #F1F5F9;background:${row >= colStudents[ci].length ? '#FAFAFA' : 'transparent'};"></td>`;
+              }
+              const stuInfo = pl_db.students[stu.id] || {};
+              const grade = (stuInfo.grade || '').replace(/초|중|고/,'');
+              return `<td style="${borderL}${CELL_W}padding:5px 3px;border-top:1px solid #F1F5F9;text-align:center;">
+                <span onclick="window.goToPLStudent('${termId}','${cls.id}','${stu.id}')"
+                  style="cursor:pointer;font-weight:600;color:var(--primary);text-decoration:underline;text-underline-offset:2px;font-size:12px;white-space:nowrap;"
+                  onmouseover="this.style.color='#3451d1'"
+                  onmouseout="this.style.color='var(--primary)'"
+                >${escapeHtml(stu.name)}<sup style="font-size:9px;color:#94A3B8;">${grade}</sup></span>
+              </td>`;
+            }).join('')}
+          </tr>
+        `).join('')}
+      </table>
+    </div>
+  </div>`;
 
-  // 요일별로 섹션 구성
-  rosterDays.forEach((day, di) => {
-    const dayCls = sortClassesByTime(term.classes.filter(c => c.day === day));
-    if (dayCls.length === 0) return;
-
-    const maxRows = Math.max(...dayCls.map(c => (pl_db.classes[c.id]?.students?.length || 0)));
-
-    // 요일 헤더
-    const colSpan = dayCls.length;
-    const borderLeft = di > 0 ? 'border-left:3px solid #94A3B8;' : '';
-
-    html += `<thead>
-      <tr>
-        <td colspan="${colSpan}" style="${borderLeft}padding:7px 10px;text-align:center;background:#1E293B;color:#fff;font-weight:800;font-size:12px;letter-spacing:0.08em;">
-          ${day}요일
-        </td>
-      </tr>
-      <tr>
-        ${dayCls.map((cls, ci) => {
-          const borderL = (di > 0 && ci === 0) ? 'border-left:3px solid #94A3B8;' : '';
-          const isHighlight = cls.name.includes('B') || cls.name.includes('중고등B');
-          return `<td style="${borderL}padding:7px 10px;text-align:center;background:${isHighlight?'#EF4444':'#475569'};color:#fff;font-weight:700;font-size:11.5px;white-space:nowrap;min-width:95px;cursor:pointer;"
-            onclick="window.plGo('class','${termId}','${cls.id}')">
-            ${escapeHtml(cls.name)}<br>
-            <span style="font-weight:400;font-size:10px;opacity:0.85;">${escapeHtml(cls.time)}</span>
-          </td>`;
-        }).join('')}
-      </tr>
-      <tr>
-        ${dayCls.map((cls, ci) => {
-          const borderL = (di > 0 && ci === 0) ? 'border-left:3px solid #94A3B8;' : '';
-          return `<td style="${borderL}padding:5px 10px;text-align:center;background:#F1F5F9;font-size:11px;color:#64748B;font-weight:600;">
-            ${cls.teacher ? `👩‍🏫 ${escapeHtml(cls.teacher)}` : '-'}
-          </td>`;
-        }).join('')}
-      </tr>
-    </thead>
-    <tbody>`;
-
-    // 학생 행
-    for (let row = 0; row < maxRows; row++) {
-      html += '<tr>';
-      dayCls.forEach((cls, ci) => {
-        const borderL = (di > 0 && ci === 0) ? 'border-left:3px solid #94A3B8;' : '';
-        const classData = pl_db.classes[cls.id];
-        const stuList = (classData?.students || []).slice().sort((a,b) => a.name.localeCompare(b.name, 'ko'));
-        const stu = stuList[row];
-        if (!stu) {
-          html += `<td style="${borderL}padding:6px 10px;border-top:1px solid #E2E8F0;background:#FAFAFA;"></td>`;
-        } else {
-          const stuInfo = pl_db.students[stu.id] || {};
-          const grade = stuInfo.grade ? stuInfo.grade.replace('초','').replace('중','').replace('고','') : '';
-          html += `<td style="${borderL}padding:6px 10px;border-top:1px solid #E2E8F0;text-align:center;">
-            <span onclick="window.goToPLStudent('${termId}','${cls.id}','${stu.id}')"
-              style="cursor:pointer;font-weight:600;color:var(--primary);text-decoration:underline;text-underline-offset:2px;white-space:nowrap;"
-              onmouseover="this.style.color='var(--primary-dark)'"
-              onmouseout="this.style.color='var(--primary)'"
-            >${escapeHtml(stu.name)}<sup style="font-size:9px;color:var(--text-secondary);margin-left:1px;">${escapeHtml(grade)}</sup></span>
-          </td>`;
-        }
-      });
-      html += '</tr>';
-    }
-
-    // 빈 행 2개
-    for (let r = 0; r < 2; r++) {
-      html += '<tr>';
-      dayCls.forEach((cls, ci) => {
-        const borderL = (di > 0 && ci === 0) ? 'border-left:3px solid #94A3B8;' : '';
-        html += `<td style="${borderL}padding:6px 10px;border-top:1px solid #E2E8F0;background:#FAFAFA;min-height:28px;">&nbsp;</td>`;
-      });
-      html += '</tr>';
-    }
-
-    html += '</tbody>';
-  });
-
-  html += `</table></div></div>`;
   return html;
 }
 
