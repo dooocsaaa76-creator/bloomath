@@ -2567,7 +2567,35 @@ window.selectPLStudent=function(sid){
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
       <div class="field">
         <label>수업 날짜</label>
-        <input type="date" id="plDate_${sid}" value="${escapeHtml(session.date||data.currentDate||'')}" onchange="window.updatePLPreview('${sid}')" style="width:100%;">
+        <div style="display:flex;gap:5px;align-items:center;">
+          <select id="plDateY_${sid}" onchange="window.onPLDateChange('${sid}')"
+            style="flex:2;border:1.5px solid var(--border);border-radius:8px;padding:8px 6px;font-size:13px;font-family:inherit;color:var(--text);background:var(--surface);appearance:auto;">
+            <option value="">년</option>
+            ${[2025,2026,2027].map(y=>`<option value="${y}" ${(session.date||'').startsWith(String(y))?'selected':''}>${y}년</option>`).join('')}
+          </select>
+          <select id="plDateM_${sid}" onchange="window.onPLDateChange('${sid}')"
+            style="flex:2;border:1.5px solid var(--border);border-radius:8px;padding:8px 6px;font-size:13px;font-family:inherit;color:var(--text);background:var(--surface);appearance:auto;">
+            <option value="">월</option>
+            ${Array.from({length:12},(_,i)=>{
+              const m=String(i+1).padStart(2,'0');
+              const sel=(session.date||'').slice(5,7)===m?'selected':'';
+              return `<option value="${m}" ${sel}>${i+1}월</option>`;
+            }).join('')}
+          </select>
+          <select id="plDateD_${sid}" onchange="window.onPLDateChange('${sid}')"
+            style="flex:2;border:1.5px solid var(--border);border-radius:8px;padding:8px 6px;font-size:13px;font-family:inherit;color:var(--text);background:var(--surface);appearance:auto;">
+            <option value="">일</option>
+            ${Array.from({length:31},(_,i)=>{
+              const d=String(i+1).padStart(2,'0');
+              const sel=(session.date||'').slice(8,10)===d?'selected':'';
+              return `<option value="${d}" ${sel}>${i+1}일</option>`;
+            }).join('')}
+          </select>
+          <div id="plDateDisplay_${sid}" style="flex:3;padding:8px 10px;border:1.5px solid var(--primary);border-radius:8px;font-size:13px;font-weight:600;color:var(--primary);background:var(--primary-light);text-align:center;white-space:nowrap;min-width:80px;">
+            ${session.date ? formatPLDate(session.date) : '날짜 선택'}
+          </div>
+        </div>
+        <input type="hidden" id="plDate_${sid}" value="${escapeHtml(session.date||data.currentDate||'')}">
       </div>
       <div class="field">
         <label>회차</label>
@@ -2608,7 +2636,26 @@ window.selectPLStudent=function(sid){
   window.updatePLPreview(sid);
 };
 
-// YYYY-MM-DD → M/D(요일) 변환
+// 날짜 드롭다운 변경 핸들러
+window.onPLDateChange = function(sid) {
+  const y = document.getElementById('plDateY_'+sid)?.value || '';
+  const m = document.getElementById('plDateM_'+sid)?.value || '';
+  const d = document.getElementById('plDateD_'+sid)?.value || '';
+  const raw = (y && m && d) ? `${y}-${m}-${d}` : '';
+  const hidden = document.getElementById('plDate_'+sid);
+  if (hidden) hidden.value = raw;
+  const display = document.getElementById('plDateDisplay_'+sid);
+  if (display) {
+    const formatted = raw ? formatPLDate(raw) : '날짜 선택';
+    display.textContent = formatted;
+    display.style.color = raw ? 'var(--primary)' : 'var(--text-secondary)';
+    display.style.borderColor = raw ? 'var(--primary)' : 'var(--border)';
+    display.style.background = raw ? 'var(--primary-light)' : 'var(--surface2)';
+  }
+  window.updatePLPreview(sid);
+};
+
+// 날짜 포맷
 function formatPLDate(val) {
   if (!val) return '';
   // 이미 변환된 형식이면 그대로
@@ -2642,6 +2689,12 @@ window.resetPLInput=function(sid){
     ['plLC_','plHW_','plCmt_','plSess_','plDate_','plTestScore_','plTestMax_','plCourse_'].forEach(p=>{
       const e=document.getElementById(p+sid); if(e)e.value='';
     });
+    // 날짜 드롭다운도 초기화
+    ['plDateY_','plDateM_','plDateD_'].forEach(p=>{
+      const e=document.getElementById(p+sid); if(e)e.value='';
+    });
+    const disp=document.getElementById('plDateDisplay_'+sid);
+    if(disp){disp.textContent='날짜 선택';disp.style.color='var(--text-secondary)';disp.style.borderColor='var(--border)';disp.style.background='var(--surface2)';}
     window.updatePLPreview(sid); showToast('↺ 초기화되었습니다','success');
   });
 };
