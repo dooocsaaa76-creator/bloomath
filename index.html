@@ -2885,6 +2885,24 @@ function renderPLRoster(){
       stuCls[s.id].push({termName:term.name,className:cls.name});
     });
   }));
+
+  // 학생별 최근 발송이력 3개 날짜 수집
+  const stuHistory={};
+  Object.values(pl_db.classes).forEach(data=>{
+    (data.sendHistory||[]).forEach(h=>{
+      if(!stuHistory[h.studentId]) stuHistory[h.studentId]=[];
+      stuHistory[h.studentId].push({date:h.date, sentAt:h.sentAt});
+    });
+  });
+  // 날짜 중복 제거 후 최근 3개
+  Object.keys(stuHistory).forEach(sid=>{
+    const seen=new Set();
+    stuHistory[sid] = stuHistory[sid]
+      .filter(h=>{ if(seen.has(h.date)) return false; seen.add(h.date); return true; })
+      .sort((a,b)=>b.sentAt-a.sentAt)
+      .slice(0,3);
+  });
+
   return `
     <div class="page-title-row">
       <div>
@@ -2897,10 +2915,14 @@ function renderPLRoster(){
       ?`<div class="empty-state"><div class="big-emoji">🧒</div>등록된 학생이 없습니다</div>`
       :`<div class="card"><div class="card-body" style="padding:0;">
         <table class="pl-roster-table">
-          <thead><tr><th>이름</th><th>학교</th><th>학년</th><th>과정</th><th>종료월</th><th>수강 중인 반</th><th>특이사항</th><th></th></tr></thead>
+          <thead><tr><th>이름</th><th>학교</th><th>학년</th><th>과정</th><th>종료월</th><th>수강 중인 반</th><th>최근 발송</th><th>특이사항</th><th></th></tr></thead>
           <tbody>
             ${students.map(([sid,stu])=>{
               const cls=stuCls[sid]||[];
+              const hist=stuHistory[sid]||[];
+              const histHtml = hist.length===0
+                ? `<span style="color:#D1D5DB;font-size:11px;">-</span>`
+                : hist.map(h=>`<span style="display:inline-block;background:var(--success-light);color:var(--success);border:1px solid #A7F3D0;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap;">${escapeHtml(h.date)}</span>`).join('');
               return `<tr class="clickable" onclick="window.plGo('student','${sid}','${escapeHtml(stu.name)}')">
                 <td><b>${escapeHtml(stu.name)}</b></td>
                 <td>${escapeHtml(stu.school||'-')}</td>
@@ -2908,8 +2930,9 @@ function renderPLRoster(){
                 <td>${escapeHtml(stu.course||'-')}</td>
                 <td>${escapeHtml(stu.endMonth||'-')}</td>
                 <td><div style="display:flex;gap:4px;flex-wrap:wrap;">${cls.map(c=>`<span class="pl-badge" title="${escapeHtml(c.termName)}">${escapeHtml(c.className)}</span>`).join('')||'-'}</div></td>
-                <td style="max-width:180px;font-size:12px;color:var(--text-secondary);">${escapeHtml(stu.memo||'')}</td>
-                <td><button class="btn btn-pl-outline btn-sm" onclick="event.stopPropagation();window.editPLStu('${sid}')">수정</button>
+                <td><div style="display:flex;gap:4px;flex-wrap:wrap;">${histHtml}</div></td>
+                <td style="max-width:140px;font-size:12px;color:var(--text-secondary);">${escapeHtml(stu.memo||'')}</td>
+                <td style="white-space:nowrap;"><button class="btn btn-pl-outline btn-sm" onclick="event.stopPropagation();window.editPLStu('${sid}')">수정</button>
                 <button class="btn btn-danger btn-sm" style="margin-left:4px;" onclick="event.stopPropagation();window.deletePLStudent('${sid}')">삭제</button></td>
               </tr>`;
             }).join('')}
