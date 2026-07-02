@@ -2660,19 +2660,24 @@ function updatePLStudentHistory(sid, classId) {
   const body = document.getElementById('plStudentHistoryBody');
   if (!title || !body) return;
 
+  // 현재 분기의 모든 반 classId 목록
+  const termId = view.plTermId;
+  const term = getPLTerm(termId);
+  const termClassIds = new Set(term ? term.classes.map(c => c.id) : []);
+
+  // 이 분기 안에서 이 학생이 발송한 전체 이력
   const hist = (stu?.history || [])
-    .filter(h => h.classId === classId)
+    .filter(h => termClassIds.has(h.classId))
     .sort((a,b) => b.sentAt - a.sentAt);
 
   title.textContent = (stu?.name || '') + ' 발송 목록';
-  subtitle.textContent = '이 반 발송 ' + hist.length + '건';
+  subtitle.textContent = '이 분기 전체 발송 ' + hist.length + '건';
 
   if (hist.length === 0) {
     body.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-secondary);font-size:13px;">발송된 문자가 없습니다</div>`;
     return;
   }
 
-  // 복사 버튼 onclick 문자열 충돌 방지: window 전역 변수에 저장
   hist.forEach((h, hi) => {
     const safeId = 'plsh_' + (h.id || hi);
     window['_plMsg_' + safeId] = h.text || '';
@@ -2684,14 +2689,15 @@ function updatePLStudentHistory(sid, classId) {
   });
 
   body.innerHTML = `<table class="msg-table">
-    <thead><tr><th class="col-date">날짜</th><th>회차</th><th>내용</th><th></th></tr></thead>
+    <thead><tr><th class="col-date">날짜</th><th>반</th><th>회차</th><th>내용</th><th></th></tr></thead>
     <tbody>
       ${hist.map((h, hi) => {
         const safeId = 'plsh_' + (h.id || hi);
         return `<tr class="clickable" onclick="window.viewPLMsgById('${safeId}')">
           <td class="col-date" style="white-space:nowrap;">${escapeHtml(h.date)}</td>
+          <td style="white-space:nowrap;font-size:12px;">${escapeHtml(h.className || '-')}</td>
           <td style="text-align:center;white-space:nowrap;">${escapeHtml(h.sessionNum || '-')}회</td>
-          <td class="col-full">${escapeHtml((h.text || '').replace(/\n/g,' ').slice(0,35))}...</td>
+          <td class="col-full">${escapeHtml((h.text || '').replace(/\n/g,' ').slice(0,30))}...</td>
           <td style="white-space:nowrap;">
             <button class="btn btn-outline btn-sm"
               onclick="event.stopPropagation();navigator.clipboard.writeText(window['_plMsg_${safeId}']||'').then(()=>showToast('✅ 복사됨','success'))">복사</button>
