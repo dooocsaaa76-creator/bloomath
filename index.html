@@ -2237,7 +2237,7 @@ function buildPLRosterTable(termId, term, rosterDays) {
 
   // 단일 테이블 생성
   const BORDER_DAY = 'border-left:2.5px solid #64748B;';
-  const CELL_W = 'min-width:90px;width:90px;'; // 2번: 확대된 열 폭
+  const CELL_W = 'min-width:85px;width:85px;';
 
   let html = `<div class="card" style="margin-bottom:24px;">
     <div class="card-header">
@@ -2402,11 +2402,6 @@ function renderPLClassPage() {
   const cls=getPLClassDef(termId,classId)||getPLClass('',classId);
   if(!cls) return `<div class="empty-state">반을 찾을 수 없습니다</div>`;
   const data=getPLClassData(classId);
-  // 이 반에 속한 학생들의 history에서 classId 일치하는 것만 수집
-  const msgHistory = Object.values(pl_db.students)
-    .flatMap(stu => (stu.history||[]).filter(h => h.classId === classId))
-    .sort((a,b) => b.sentAt - a.sentAt)
-    .slice(0, 20);
   return `
     <div class="page-title-row">
       <div>
@@ -2444,7 +2439,7 @@ function renderPLClassPage() {
         </div>
       </div>
 
-      <!-- 오른쪽: 미리보기 + 발송목록 -->
+      <!-- 오른쪽: 미리보기 + 해당 학생 발송목록 -->
       <div>
         <div class="card" style="margin-bottom:16px;">
           <div class="card-header">
@@ -2462,38 +2457,22 @@ function renderPLClassPage() {
           </div>
         </div>
 
-        <div class="card">
+        <!-- 해당 학생 발송목록 (학생 선택 시 업데이트) -->
+        <div class="card" id="plStudentHistoryCard">
           <div class="card-header" style="justify-content:space-between;">
             <div style="display:flex;align-items:center;gap:8px;">
               <div class="card-icon icon-students">📨</div>
-              <div><div class="card-title">전체 학생 문자 목록</div><div class="card-subtitle">저장된 발송 내역</div></div>
+              <div>
+                <div class="card-title" id="plStudentHistoryTitle">문자 발송 목록</div>
+                <div class="card-subtitle" id="plStudentHistorySubtitle">학생을 선택하면 해당 학생의 발송 내역이 표시됩니다</div>
+              </div>
             </div>
             <button class="btn btn-outline btn-sm" onclick="window.openPLStatsModal('${termId}','${classId}')">전체보기</button>
           </div>
-          <div class="card-body" style="padding:0;">
-            ${msgHistory.length===0
-              ? `<div style="padding:20px;text-align:center;color:var(--text-secondary);font-size:13px;">발송된 문자가 없습니다</div>`
-              : `<table class="msg-table">
-                  <thead><tr><th class="col-date">날짜</th><th>학생</th><th>내용</th><th></th></tr></thead>
-                  <tbody>
-                    ${msgHistory.map((h,hi)=>{
-                      const safeId = 'plh_' + (h.id || hi);
-                      window['_plMsg_'+safeId] = h.text||'';
-                      window['_plMeta_'+safeId] = {date:h.date, studentName:h.studentName, className:h.studentName};
-                      return `
-                      <tr class="clickable" onclick="window.viewPLMsgById('${safeId}')">
-                        <td class="col-date" style="white-space:nowrap;">${escapeHtml(h.date)}</td>
-                        <td style="font-weight:600;white-space:nowrap;">${escapeHtml(h.studentName)}</td>
-                        <td class="col-full">${escapeHtml((h.text||'').replace(/\n/g,' ').slice(0,35))}...</td>
-                        <td style="white-space:nowrap;">
-                          <button class="btn btn-outline btn-sm" onclick="event.stopPropagation();navigator.clipboard.writeText(window['_plMsg_${safeId}']||'').then(()=>showToast('✅ 복사됨','success'))">복사</button>
-                          <button class="btn btn-danger btn-sm" style="margin-left:3px;" onclick="event.stopPropagation();window.deletePLSentMsg('${classId}','${h.id}')">삭제</button>
-                        </td>
-                      </tr>`;
-                    }).join('')}
-                  </tbody>
-                </table>`
-            }
+          <div class="card-body" style="padding:0;" id="plStudentHistoryBody">
+            <div style="padding:24px;text-align:center;color:var(--text-secondary);font-size:13px;">
+              ← 학생을 선택해주세요
+            </div>
           </div>
         </div>
       </div>
@@ -2668,7 +2647,43 @@ window.selectPLStudent=function(sid){
       <textarea id="plCmt_${sid}" placeholder="오늘 수업 내용, 칭찬, 주의사항 등" style="min-height:90px;" oninput="window.updatePLPreview('${sid}')">${escapeHtml(session.comment||'')}</textarea>
     </div>
   `;
+  // 해당 학생 발송목록 업데이트
+  updatePLStudentHistory(sid, classId);
   window.updatePLPreview(sid);
+};
+
+/* 해당 학생의 이 반 발송목록을 우측 카드에 렌더링 */
+function updatePLStudentHistory(sid, classId) {
+  const stu = pl_db.students[sid];
+  const title = document.getElementById('plStudentHistoryTitle');
+  const subtitle = document.getElementById('plStudentHistorySubtitle');
+  const body = document.getElementById('plStudentHistoryBody');
+  if (!title || !body) return;
+  const hist = (stu?.history || [])
+    .filter(h => h.classId === classId)
+    .sort((a,b) => b.sentAt - a.sentAt);
+  title.textContent = (stu?.name||'') + ' 발송 목록';
+  subtitle.textContent = '이 반 발송 ' + hist.length + '건';
+  if (hist.length === 0) {
+    body.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-secondary);font-size:13px;">발송된 문자가 없습니다</div>';
+    return;
+  }
+  body.innerHTML = '<table class="msg-table"><thead><tr><th class="col-date">날짜</th><th>회차</th><th>내용</th><th></th></tr></thead><tbody>' +
+    hist.map(function(h,hi){
+      const safeId = 'plsh_' + (h.id || hi);
+      window['_plMsg_'+safeId] = h.text||'';
+      window['_plMeta_'+safeId] = {date:h.date, studentName:h.studentName||(stu?stu.name:''), className:h.className||classId};
+      return '<tr class="clickable" onclick="window.viewPLMsgById(\''+safeId+'\')"><td class="col-date" style="white-space:nowrap;">'+escapeHtml(h.date)+'</td><td style="text-align:center;white-space:nowrap;">'+escapeHtml(h.sessionNum||'-')+'회</td><td class="col-full">'+escapeHtml((h.text||'').replace(/\n/g,' ').slice(0,35))+'...</td><td style="white-space:nowrap;"><button class="btn btn-outline btn-sm" onclick="event.stopPropagation();navigator.clipboard.writeText(window[\'_plMsg_'+safeId+'\']||\'').then(()=>showToast(\'✅ 복사됨\',\'success\'))">복사</button><button class="btn btn-danger btn-sm" style="margin-left:3px;" onclick="event.stopPropagation();window.deletePLSentMsgById(\''+h.id+'\',\''+sid+'\',\''+classId+'\')">삭제</button></td></tr>';
+    }).join('') + '</tbody></table>';
+}
+window.deletePLSentMsgById = function(msgId, sid, classId) {
+  showConfirm('이 발송 문자를 삭제할까요?', async function() {
+    var stu = pl_db.students[sid];
+    if (stu && stu.history) stu.history = stu.history.filter(function(h){return h.id !== msgId;});
+    await savePLDB();
+    updatePLStudentHistory(sid, classId);
+    showToast('🗑️ 삭제되었습니다');
+  });
 };
 
 // 날짜 드롭다운 변경 핸들러
@@ -2829,13 +2844,8 @@ window.markPLSent=async function(sid){
   if(ei>=0)pl_db.students[target].history[ei]=histEntry;else pl_db.students[target].history.push(histEntry);
 
   await savePLDB();
-
-  // 페이지 새로고침 후 학생 선택 복원
-  const termId=view.plTermId;
-  view={page:'pl-class',plTermId:termId,plClassId:classId};
-  document.getElementById('app').innerHTML=renderPLClassPage();
-  initPLClassPage();
-  window.selectPLStudent(target);
+  renderPLStudentTabs();
+  updatePLStudentHistory(target, classId);
   showToast('✅ 발송목록에 저장되었습니다','success');
 };
 
