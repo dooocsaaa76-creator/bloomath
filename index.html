@@ -481,6 +481,8 @@
   }
   /* 문자 내용 팝업은 통계 모달 위에 표시 */
   #modal { z-index: 600; }
+  /* 확인 모달은 항상 최상단 */
+  #confirmModal { z-index: 700; }
   .modal-box {
     max-width: 760px;
     margin: 0 auto;
@@ -2203,21 +2205,21 @@ function buildPLRosterTable(termId, term, rosterDays) {
 
   // 단일 테이블 생성
   const BORDER_DAY = 'border-left:2.5px solid #64748B;';
-  const CELL_W = 'min-width:72px;width:72px;'; // 촘촘한 열 폭
+  const CELL_W = 'min-width:90px;width:90px;'; // 2번: 확대된 열 폭
 
   let html = `<div class="card" style="margin-bottom:24px;">
     <div class="card-header">
       <div class="card-icon" style="background:#FFF3E0;">👥</div>
-      <div><div class="card-title">학생 명단</div><div class="card-subtitle">이름 클릭 시 문자 입력 화면으로 이동</div></div>
+      <div><div class="card-title">학생 명단</div><div class="card-subtitle">이름 클릭 → 문자 입력 · 마우스 올리면 같은 학생 전체 강조</div></div>
     </div>
     <div class="card-body" style="padding:0;overflow-x:auto;">
-      <table style="border-collapse:collapse;font-size:12px;table-layout:fixed;">
+      <table style="border-collapse:collapse;font-size:13.5px;table-layout:fixed;" id="plRosterTable">
         <!-- 행1: 요일 헤더 -->
         <tr>
           ${rosterDays.map((day, di) => {
             const borderL = di > 0 ? BORDER_DAY : '';
             const span = dayColSpan[day];
-            return `<td colspan="${span}" style="${borderL}${CELL_W}padding:6px 4px;text-align:center;background:#1E293B;color:#fff;font-weight:800;font-size:12px;letter-spacing:0.06em;">${day}요일</td>`;
+            return `<td colspan="${span}" style="${borderL}${CELL_W}padding:7px 4px;text-align:center;background:#1E293B;color:#fff;font-weight:800;font-size:13px;letter-spacing:0.06em;">${day}요일</td>`;
           }).join('')}
         </tr>
         <!-- 행2: 반 이름 -->
@@ -2226,7 +2228,7 @@ function buildPLRosterTable(termId, term, rosterDays) {
             const borderL = isFirstOfDay && ci > 0 ? BORDER_DAY : '';
             const isB = cls.name.includes('1부B') || cls.name.includes('중고등B');
             const bg = isB ? '#DC2626' : '#475569';
-            return `<td style="${borderL}${CELL_W}padding:5px 3px;text-align:center;background:${bg};color:#fff;font-weight:700;font-size:11px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
+            return `<td style="${borderL}${CELL_W}padding:6px 3px;text-align:center;background:${bg};color:#fff;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
               onclick="window.plGo('class','${termId}','${cls.id}')" title="${escapeHtml(cls.name)} (${escapeHtml(cls.time)})">
               ${escapeHtml(cls.name)}
             </td>`;
@@ -2236,7 +2238,7 @@ function buildPLRosterTable(termId, term, rosterDays) {
         <tr>
           ${allCols.map(({day, cls, isFirstOfDay}, ci) => {
             const borderL = isFirstOfDay && ci > 0 ? BORDER_DAY : '';
-            return `<td style="${borderL}${CELL_W}padding:3px 4px;text-align:center;background:#E2E8F0;font-size:10px;color:#475569;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+            return `<td style="${borderL}${CELL_W}padding:3px 4px;text-align:center;background:#E2E8F0;font-size:11px;color:#475569;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
               ${escapeHtml(cls.time)}
             </td>`;
           }).join('')}
@@ -2245,7 +2247,7 @@ function buildPLRosterTable(termId, term, rosterDays) {
         <tr>
           ${allCols.map(({day, cls, isFirstOfDay}, ci) => {
             const borderL = isFirstOfDay && ci > 0 ? BORDER_DAY : '';
-            return `<td style="${borderL}${CELL_W}padding:3px 4px;text-align:center;background:#F8FAFC;font-size:10px;color:#64748B;font-weight:600;border-bottom:1.5px solid #CBD5E1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+            return `<td style="${borderL}${CELL_W}padding:3px 4px;text-align:center;background:#F8FAFC;font-size:11px;color:#64748B;font-weight:600;border-bottom:1.5px solid #CBD5E1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
               ${cls.teacher ? escapeHtml(cls.teacher) : '-'}
             </td>`;
           }).join('')}
@@ -2257,16 +2259,18 @@ function buildPLRosterTable(termId, term, rosterDays) {
               const borderL = isFirstOfDay && ci > 0 ? BORDER_DAY : '';
               const stu = colStudents[ci][row];
               if (!stu) {
-                return `<td style="${borderL}${CELL_W}padding:5px 3px;border-top:1px solid #F1F5F9;background:${row >= colStudents[ci].length ? '#FAFAFA' : 'transparent'};"></td>`;
+                return `<td style="${borderL}${CELL_W}padding:6px 3px;border-top:1px solid #F1F5F9;background:${row >= colStudents[ci].length ? '#FAFAFA' : 'transparent'};"></td>`;
               }
               const stuInfo = pl_db.students[stu.id] || {};
               const grade = (stuInfo.grade || '').replace(/초|중|고/,'');
-              return `<td style="${borderL}${CELL_W}padding:5px 3px;border-top:1px solid #F1F5F9;text-align:center;">
-                <span onclick="window.goToPLStudent('${termId}','${cls.id}','${stu.id}')"
-                  style="cursor:pointer;font-weight:600;color:var(--primary);text-decoration:underline;text-underline-offset:2px;font-size:12px;white-space:nowrap;"
-                  onmouseover="this.style.color='#3451d1'"
-                  onmouseout="this.style.color='var(--primary)'"
-                >${escapeHtml(stu.name)}<sup style="font-size:9px;color:#94A3B8;">${grade}</sup></span>
+              return `<td style="${borderL}${CELL_W}padding:6px 3px;border-top:1px solid #F1F5F9;text-align:center;">
+                <span
+                  data-stuname="${escapeHtml(stu.name)}"
+                  onclick="window.goToPLStudent('${termId}','${cls.id}','${stu.id}')"
+                  onmouseenter="window.highlightPLStudent('${escapeHtml(stu.name)}',true)"
+                  onmouseleave="window.highlightPLStudent('${escapeHtml(stu.name)}',false)"
+                  style="cursor:pointer;font-weight:600;color:var(--primary);text-underline-offset:2px;font-size:13.5px;white-space:nowrap;border-radius:4px;padding:2px 4px;transition:background 0.12s,color 0.12s;"
+                >${escapeHtml(stu.name)}<sup style="font-size:9.5px;color:#94A3B8;">${grade}</sup></span>
               </td>`;
             }).join('')}
           </tr>
@@ -2283,8 +2287,26 @@ window.goToPLStudent = function(termId, classId, studentId) {
   plView.studentId = studentId;
   view = { page:'pl-class', plTermId: termId, plClassId: classId };
   render();
-  // 렌더 후 학생 자동 선택
   setTimeout(() => { window.selectPLStudent(studentId); }, 50);
+};
+
+/* 3번: 동일 학생 이름 전체 강조/해제 */
+window.highlightPLStudent = function(name, on) {
+  document.querySelectorAll('[data-stuname]').forEach(el => {
+    if (el.getAttribute('data-stuname') === name) {
+      if (on) {
+        el.style.background = '#FEF3C7';
+        el.style.color = '#92400E';
+        el.style.textDecoration = 'none';
+        el.style.fontWeight = '800';
+      } else {
+        el.style.background = '';
+        el.style.color = 'var(--primary)';
+        el.style.textDecoration = 'underline';
+        el.style.fontWeight = '600';
+      }
+    }
+  });
 };
 
 window.addPLClass=async function(termId){
@@ -2421,9 +2443,9 @@ function renderPLClassPage() {
                     ${msgHistory.map((h,hi)=>{
                       const safeId = 'plh_' + (h.id || hi);
                       window['_plMsg_'+safeId] = h.text||'';
-                      const metaJson = JSON.stringify(JSON.stringify({date:h.date, studentName:h.studentName, className:h.studentName}));
+                      window['_plMeta_'+safeId] = {date:h.date, studentName:h.studentName, className:h.studentName};
                       return `
-                      <tr class="clickable" onclick="window.viewPLMsgById('${safeId}',${metaJson})">
+                      <tr class="clickable" onclick="window.viewPLMsgById('${safeId}')">
                         <td class="col-date" style="white-space:nowrap;">${escapeHtml(h.date)}</td>
                         <td style="font-weight:600;white-space:nowrap;">${escapeHtml(h.studentName)}</td>
                         <td class="col-full">${escapeHtml((h.text||'').replace(/\n/g,' ').slice(0,35))}...</td>
@@ -2567,35 +2589,12 @@ window.selectPLStudent=function(sid){
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
       <div class="field">
         <label>수업 날짜</label>
-        <div style="display:flex;gap:5px;align-items:center;">
-          <select id="plDateY_${sid}" onchange="window.onPLDateChange('${sid}')"
-            style="flex:2;border:1.5px solid var(--border);border-radius:8px;padding:8px 6px;font-size:13px;font-family:inherit;color:var(--text);background:var(--surface);appearance:auto;">
-            <option value="">년</option>
-            ${[2025,2026,2027].map(y=>`<option value="${y}" ${(session.date||'').startsWith(String(y))?'selected':''}>${y}년</option>`).join('')}
-          </select>
-          <select id="plDateM_${sid}" onchange="window.onPLDateChange('${sid}')"
-            style="flex:2;border:1.5px solid var(--border);border-radius:8px;padding:8px 6px;font-size:13px;font-family:inherit;color:var(--text);background:var(--surface);appearance:auto;">
-            <option value="">월</option>
-            ${Array.from({length:12},(_,i)=>{
-              const m=String(i+1).padStart(2,'0');
-              const sel=(session.date||'').slice(5,7)===m?'selected':'';
-              return `<option value="${m}" ${sel}>${i+1}월</option>`;
-            }).join('')}
-          </select>
-          <select id="plDateD_${sid}" onchange="window.onPLDateChange('${sid}')"
-            style="flex:2;border:1.5px solid var(--border);border-radius:8px;padding:8px 6px;font-size:13px;font-family:inherit;color:var(--text);background:var(--surface);appearance:auto;">
-            <option value="">일</option>
-            ${Array.from({length:31},(_,i)=>{
-              const d=String(i+1).padStart(2,'0');
-              const sel=(session.date||'').slice(8,10)===d?'selected':'';
-              return `<option value="${d}" ${sel}>${i+1}일</option>`;
-            }).join('')}
-          </select>
-          <div id="plDateDisplay_${sid}" style="flex:3;padding:8px 10px;border:1.5px solid var(--primary);border-radius:8px;font-size:13px;font-weight:600;color:var(--primary);background:var(--primary-light);text-align:center;white-space:nowrap;min-width:80px;">
-            ${session.date ? formatPLDate(session.date) : '날짜 선택'}
-          </div>
-        </div>
-        <input type="hidden" id="plDate_${sid}" value="${escapeHtml(session.date||data.currentDate||'')}">
+        <input type="text" id="plDate_${sid}"
+          placeholder="예: 6/24(화)"
+          value="${escapeHtml(session.date ? formatPLDate(session.date) : (data.currentDate ? formatPLDate(data.currentDate) : ''))}"
+          oninput="window.updatePLPreview('${sid}')"
+          style="width:100%;">
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:4px;">6/24(화) 형식으로 입력해주세요</div>
       </div>
       <div class="field">
         <label>회차</label>
@@ -2672,7 +2671,7 @@ window.updatePLPreview=function(sid){
   const msg = buildPLMsg(
     g('plCourse_'+sid) || stu.course,
     stu.name,
-    formatPLDate(g('plDate_'+sid)),
+    g('plDate_'+sid),
     g('plSess_'+sid),
     g('plLC_'+sid),
     g('plHW_'+sid),
@@ -2718,7 +2717,7 @@ function getPLCurrentMsg(sid) {
   return buildPLMsg(
     g('plCourse_'+sid) || stu.course,
     stu.name,
-    formatPLDate(g('plDate_'+sid)),
+    g('plDate_'+sid),
     g('plSess_'+sid),
     g('plLC_'+sid),
     g('plHW_'+sid),
@@ -2741,8 +2740,7 @@ window.savePLSess=async function(sid){
   const dateRaw=g('plDate_'+sid); data.currentDate=dateRaw;
   const entry={
     studentId: sid,
-    date:      dateRaw,
-    sessionNum:g('plSess_'+sid),
+    date:      dateRaw,    sessionNum:g('plSess_'+sid),
     course:    g('plCourse_'+sid),
     lclass:    g('plLC_'+sid),
     homework:  g('plHW_'+sid),
@@ -2761,13 +2759,12 @@ window.markPLSent=async function(sid){
 
   const classId=view.plClassId; const data=getPLClassData(classId);
   const g=id=>document.getElementById(id)?.value||'';
-  const dateRaw=g('plDate_'+target)||data.currentDate||'';
-  const dateDisplay = formatPLDate(dateRaw);
-  data.currentDate=dateRaw;
+  const dateVal=g('plDate_'+target)||data.currentDate||'';
+  data.currentDate=dateVal;
 
   // 세션 저장 (토스트 없이)
   const entry={
-    studentId:target, date:dateRaw,
+    studentId:target, date:dateVal,
     sessionNum:g('plSess_'+target),
     course:    g('plCourse_'+target),
     lclass:    g('plLC_'+target),
@@ -2782,12 +2779,12 @@ window.markPLSent=async function(sid){
 
   // 발송 이력 저장
   if(!pl_db.students[target].sentLog)pl_db.students[target].sentLog={};
-  pl_db.students[target].sentLog[classId+'_'+dateRaw]=true;
+  pl_db.students[target].sentLog[classId+'_'+dateVal]=true;
   if(!data.sendHistory)data.sendHistory=[];
   const stu=pl_db.students[target];
   const msg=getPLCurrentMsg(target);
-  const ei=data.sendHistory.findIndex(h=>h.studentId===target && h.date===dateDisplay);
-  const histEntry={id:uid(),studentId:target,studentName:stu.name,date:dateDisplay,
+  const ei=data.sendHistory.findIndex(h=>h.studentId===target && h.date===dateVal);
+  const histEntry={id:uid(),studentId:target,studentName:stu.name,date:dateVal,
     sessionNum:g('plSess_'+target),text:msg,sentAt:Date.now()};
   if(ei>=0)data.sendHistory[ei]=histEntry;else data.sendHistory.push(histEntry);
 
@@ -3016,17 +3013,15 @@ function renderPLStudentPage(){
     </div>`;
 }
 window.viewPLMsgById=function(msgKey, metaStr){
-  try{
-    const text = window['_plMsg_'+msgKey]||'';
-    const meta = JSON.parse(metaStr);
-    document.getElementById('modalTitle').textContent=`${meta.date||''} · ${meta.studentName||''} · ${meta.className||''}`;
-    document.getElementById('modalContent').innerHTML=`<pre style="white-space:pre-wrap;word-break:break-all;font-family:'Noto Sans KR',sans-serif;font-size:13.5px;line-height:1.75;background:var(--surface2);padding:16px;border-radius:8px;">${escapeHtml(text)}</pre>`;
-    window['_modalMsg'] = text;
-    document.getElementById('modalFooter').innerHTML=`
-      <button class="btn btn-primary" onclick="navigator.clipboard.writeText(window['_modalMsg']||'').then(()=>showToast('✅ 복사됨','success'))">📋 복사</button>
-      <button class="btn btn-outline" onclick="window.closeModal()">닫기</button>`;
-    document.getElementById('modal').style.display='block';
-  }catch(e){showToast('오류: '+e.message);}
+  const text = window['_plMsg_'+msgKey]||'';
+  const meta = window['_plMeta_'+msgKey] || (metaStr ? JSON.parse(metaStr) : {});
+  document.getElementById('modalTitle').textContent=`${meta.date||''} · ${meta.studentName||''}`;
+  document.getElementById('modalContent').innerHTML=`<pre style="white-space:pre-wrap;word-break:break-all;font-family:'Noto Sans KR',sans-serif;font-size:13.5px;line-height:1.75;background:var(--surface2);padding:16px;border-radius:8px;">${escapeHtml(text)}</pre>`;
+  window['_modalMsg'] = text;
+  document.getElementById('modalFooter').innerHTML=`
+    <button class="btn btn-primary" onclick="navigator.clipboard.writeText(window['_modalMsg']||'').then(()=>showToast('✅ 복사됨','success'))">📋 복사</button>
+    <button class="btn btn-outline" onclick="window.closeModal()">닫기</button>`;
+  document.getElementById('modal').style.display='block';
 };
 
 window.viewPLMsg=function(hStr){
