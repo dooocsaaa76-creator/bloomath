@@ -1935,8 +1935,8 @@ function showToast(msg, type) {
    PL 개별진도반 - 데이터 모델 (분기 구조)
    pl_db = {
      terms: [ { id, name, venue, classes:[{id,name,day,time,teacher}] } ],
-     classes: { classId: { students, sessions, sendHistory, currentDate } },
-     students: { studentId: { name, school, grade, course, period, endMonth, memo, sentLog } }
+     classes: { classId: { students, sessions, currentDate } },
+     students: { studentId: { name, school, grade, course, period, endMonth, memo, sentLog, history:[{id,classId,className,date,sessionNum,text,sentAt}] } }
    }
 =========================================================== */
 
@@ -1960,6 +1960,35 @@ async function savePLDB() {
   setTimeout(() => { isPLSaving = false; }, 800);
 }
 
+/* 기존 sendHistory → student.history 마이그레이션 */
+async function migratePLSendHistory() {
+  let changed = false;
+  Object.entries(pl_db.classes).forEach(([classId, data]) => {
+    const legacy = data.sendHistory;
+    if (!legacy || legacy.length === 0) return;
+    // 반 이름 조회
+    const clsDef = pl_db.terms.flatMap(t=>t.classes).find(c=>c.id===classId);
+    const className = clsDef ? clsDef.name : classId;
+    legacy.forEach(h => {
+      const sid = h.studentId;
+      if (!sid || !pl_db.students[sid]) return;
+      if (!pl_db.students[sid].history) pl_db.students[sid].history = [];
+      // 이미 있는지 확인 (중복 방지)
+      const exists = pl_db.students[sid].history.some(x => x.id === h.id);
+      if (!exists) {
+        pl_db.students[sid].history.push({ ...h, classId, className });
+        changed = true;
+      }
+    });
+    // 마이그레이션 후 sendHistory 비우기
+    data.sendHistory = [];
+  });
+  if (changed) {
+    await savePLDB();
+    console.log('PL sendHistory 마이그레이션 완료');
+  }
+}
+
 function startPLRealtimeSync() {
   onSnapshot(PL_DOC, (snap) => {
     if (isPLSaving) return;
@@ -1970,8 +1999,11 @@ function startPLRealtimeSync() {
       pl_db = { terms: [], classes: {}, students: {} };
       setDoc(PL_DOC, { terms:[], classes:{}, students:{} }).catch(e=>console.error(e));
     }
-    if (!isPLInitialized) { isPLInitialized = true; }
-    else if (view.page && view.page.startsWith('pl')) { silentPLRefresh(); }
+    if (!isPLInitialized) {
+      isPLInitialized = true;
+      // 기존 sendHistory → student.history 자동 마이그레이션
+      migratePLSendHistory();
+    } else if (view.page && view.page.startsWith('pl')) { silentPLRefresh(); }
   }, (err) => { console.error('PL 동기화 오류:', err); isPLInitialized = true; });
 }
 
@@ -1987,7 +2019,7 @@ function silentPLRefresh() {
 function getPLTerm(tid) { return pl_db.terms.find(t=>t.id===tid); }
 function getPLClassDef(termId, classId) { const t=getPLTerm(termId); return t?t.classes.find(c=>c.id===classId):null; }
 function getPLClassData(classId) {
-  if (!pl_db.classes[classId]) pl_db.classes[classId]={students:[],sessions:[],sendHistory:[],currentDate:''};
+  if (!pl_db.classes[classId]) pl_db.classes[classId]={students:[],sessions:[],currentDate:''};
   return pl_db.classes[classId];
 }
 function getPLClass(venue, classId) {
@@ -2357,7 +2389,7 @@ window.copyPLStudents=async function(){
   const news=fromData.students.filter(s=>s.name&&!existNames.has(s.name)).map(s=>{
     const orig=pl_db.students[s.id]||{};
     const nid='pl_'+uid();
-    pl_db.students[nid]={name:s.name,school:orig.school||'',grade:orig.grade||'',course:'',period:'',endMonth:'',memo:'',sentLog:{}};
+    pl_db.students[nid]={name:s.name,school:orig.school||'',grade:orig.grade||'',course:'',period:'',endMonth:'',memo:'',sentLog:{},history:[]};
     return {id:nid,name:s.name};
   });
   toData.students.push(...news);
@@ -2370,7 +2402,11 @@ function renderPLClassPage() {
   const cls=getPLClassDef(termId,classId)||getPLClass('',classId);
   if(!cls) return `<div class="empty-state">반을 찾을 수 없습니다</div>`;
   const data=getPLClassData(classId);
-  const msgHistory = (data.sendHistory||[]).slice().sort((a,b)=>b.sentAt-a.sentAt).slice(0,20);
+  // 이 반에 속한 학생들의 history에서 classId 일치하는 것만 수집
+  const msgHistory = Object.values(pl_db.students)
+    .flatMap(stu => (stu.history||[]).filter(h => h.classId === classId))
+    .sort((a,b) => b.sentAt - a.sentAt)
+    .slice(0, 20);
   return `
     <div class="page-title-row">
       <div>
@@ -2557,7 +2593,7 @@ window.confirmPLAddStudent=async function(){
   pl_db.students[sid]={name,school:document.getElementById('plAddSchool').value.trim(),
     grade:document.getElementById('plAddGrade').value,course:document.getElementById('plAddCourse').value.trim(),
     period:document.getElementById('plAddPeriod').value.trim(),endMonth:document.getElementById('plAddEndMonth').value.trim(),
-    memo:document.getElementById('plAddMemo').value.trim(),sentLog:{}};
+    memo:document.getElementById('plAddMemo').value.trim(),sentLog:{},history:[]};
   await savePLDB(); document.getElementById('plAddStudentModal').style.display='none';
   renderPLStudentTabs(); showToast(`✅ '${name}' 추가 완료`,'success');
 };
@@ -2780,13 +2816,17 @@ window.markPLSent=async function(sid){
   // 발송 이력 저장
   if(!pl_db.students[target].sentLog)pl_db.students[target].sentLog={};
   pl_db.students[target].sentLog[classId+'_'+dateVal]=true;
-  if(!data.sendHistory)data.sendHistory=[];
+  // 발송 이력을 학생 단위로 저장 (반 이동해도 보존)
+  if(!pl_db.students[target].history)pl_db.students[target].history=[];
   const stu=pl_db.students[target];
   const msg=getPLCurrentMsg(target);
-  const ei=data.sendHistory.findIndex(h=>h.studentId===target && h.date===dateVal);
-  const histEntry={id:uid(),studentId:target,studentName:stu.name,date:dateVal,
+  // 반 이름 조회
+  const clsDef = pl_db.terms.flatMap(t=>t.classes).find(c=>c.id===classId);
+  const className = clsDef ? clsDef.name : classId;
+  const histEntry={id:uid(),classId,className,studentId:target,studentName:stu.name,date:dateVal,
     sessionNum:g('plSess_'+target),text:msg,sentAt:Date.now()};
-  if(ei>=0)data.sendHistory[ei]=histEntry;else data.sendHistory.push(histEntry);
+  const ei=pl_db.students[target].history.findIndex(h=>h.classId===classId && h.date===dateVal);
+  if(ei>=0)pl_db.students[target].history[ei]=histEntry;else pl_db.students[target].history.push(histEntry);
 
   await savePLDB();
 
@@ -2802,8 +2842,10 @@ window.markPLSent=async function(sid){
 /* PL 발송 이력 삭제 */
 window.deletePLSentMsg = function(classId, msgId) {
   showConfirm('이 발송 문자를 삭제할까요?', async () => {
-    const data = getPLClassData(classId);
-    data.sendHistory = (data.sendHistory||[]).filter(h => h.id !== msgId);
+    // 모든 학생 history에서 해당 id 제거
+    Object.values(pl_db.students).forEach(stu => {
+      if (stu.history) stu.history = stu.history.filter(h => h.id !== msgId);
+    });
     await savePLDB();
     const termId = view.plTermId;
     view = {page:'pl-class', plTermId:termId, plClassId:classId};
@@ -2817,8 +2859,10 @@ window.deletePLSentMsg = function(classId, msgId) {
 /* PL 통계 모달 */
 window.openPLStatsModal = function(termId, classId) {
   const cls = getPLClassDef(termId, classId);
-  const data = getPLClassData(classId);
-  const history = (data.sendHistory||[]).slice().sort((a,b)=>b.sentAt-a.sentAt);
+  // 학생 history에서 이 반 것만 수집
+  const history = Object.values(pl_db.students)
+    .flatMap(stu => (stu.history||[]).filter(h => h.classId === classId))
+    .sort((a,b) => b.sentAt - a.sentAt);
 
   // 학생별 발송 날짜 집계
   const byStudent = {};
@@ -2883,18 +2927,12 @@ function renderPLRoster(){
     });
   }));
 
-  // 학생별 최근 발송이력 3개 날짜 수집
+  // 학생별 최근 발송이력 3개 날짜 수집 (student.history 기반)
   const stuHistory={};
-  Object.values(pl_db.classes).forEach(data=>{
-    (data.sendHistory||[]).forEach(h=>{
-      if(!stuHistory[h.studentId]) stuHistory[h.studentId]=[];
-      stuHistory[h.studentId].push({date:h.date, sentAt:h.sentAt});
-    });
-  });
-  // 날짜 중복 제거 후 최근 3개
-  Object.keys(stuHistory).forEach(sid=>{
+  Object.entries(pl_db.students).forEach(([sid, stu]) => {
+    if (!stu.history || stu.history.length === 0) return;
     const seen=new Set();
-    stuHistory[sid] = stuHistory[sid]
+    stuHistory[sid] = stu.history
       .filter(h=>{ if(seen.has(h.date)) return false; seen.add(h.date); return true; })
       .sort((a,b)=>b.sentAt-a.sentAt)
       .slice(0,3);
@@ -2942,14 +2980,8 @@ function renderPLRoster(){
 function renderPLStudentPage(){
   const sid=view.plStudentId; const stu=pl_db.students[sid];
   if(!stu) return `<div class="empty-state">학생을 찾을 수 없습니다</div>`;
-  const hist=[];
-  Object.entries(pl_db.classes).forEach(([cid,data])=>{
-    (data.sendHistory||[]).filter(h=>h.studentId===sid).forEach(h=>{
-      const cls=pl_db.terms.flatMap(t=>t.classes).find(c=>c.id===cid);
-      hist.push({...h,className:cls?cls.name:cid});
-    });
-  });
-  hist.sort((a,b)=>b.sentAt-a.sentAt);
+  // student.history 기반 (반 이동해도 보존)
+  const hist = (stu.history||[]).slice().sort((a,b)=>b.sentAt-a.sentAt);
   const myCls=[];
   pl_db.terms.forEach(term=>term.classes.forEach(cls=>{
     if(pl_db.classes[cls.id]?.students?.some(s=>s.id===sid)) myCls.push({termName:term.name,cls});
