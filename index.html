@@ -2246,9 +2246,22 @@ function buildPLRosterTable(termId, term, rosterDays) {
   const CELL_W = 'min-width:85px;width:85px;';
 
   let html = `<div class="card" style="margin-bottom:24px;">
-    <div class="card-header">
-      <div class="card-icon" style="background:#FFF3E0;">👥</div>
-      <div><div class="card-title">학생 명단</div><div class="card-subtitle">이름 클릭 → 문자 입력 · 마우스 올리면 같은 학생 전체 강조</div></div>
+    <div class="card-header" style="justify-content:space-between;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div class="card-icon" style="background:#FFF3E0;">👥</div>
+        <div><div class="card-title">학생 명단</div><div class="card-subtitle">이름 클릭 → 문자 입력 · 마우스 올리면 같은 학생 전체 강조</div></div>
+      </div>
+      <!-- 검색창 -->
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div style="position:relative;">
+          <input type="text" id="plRosterSearch" placeholder="🔍 학생 이름 검색"
+            oninput="window.searchPLRoster(this.value)"
+            style="border:1.5px solid var(--border);border-radius:20px;padding:6px 14px 6px 14px;font-size:13px;font-family:inherit;width:160px;outline:none;transition:border 0.15s;"
+            onfocus="this.style.borderColor='var(--primary)'"
+            onblur="this.style.borderColor='var(--border)'">
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="document.getElementById('plRosterSearch').value='';window.searchPLRoster('');" style="font-size:12px;padding:6px 10px;">✕</button>
+      </div>
     </div>
     <div class="card-body" style="padding:0;overflow-x:auto;">
       <table style="border-collapse:collapse;font-size:13.5px;table-layout:fixed;" id="plRosterTable">
@@ -2328,7 +2341,44 @@ window.goToPLStudent = function(termId, classId, studentId) {
   setTimeout(() => { window.selectPLStudent(studentId); }, 50);
 };
 
-/* 3번: 동일 학생 이름 전체 강조/해제 */
+/* 학생 명단 검색 - 일치 학생 강조, 나머지 흐리게 */
+window.searchPLRoster = function(query) {
+  const q = query.trim();
+  const spans = document.querySelectorAll('#plRosterTable [data-stuname]');
+  if (!q) {
+    // 검색어 없으면 모두 원래대로
+    spans.forEach(el => {
+      el.style.background = '';
+      el.style.color = 'var(--primary)';
+      el.style.textDecoration = 'underline';
+      el.style.fontWeight = '600';
+      el.style.opacity = '';
+      el.style.borderRadius = '';
+    });
+    return;
+  }
+  spans.forEach(el => {
+    const name = el.getAttribute('data-stuname') || '';
+    if (name.includes(q)) {
+      // 검색 일치: 노란 배경 + 진한 글씨
+      el.style.background = '#FBBF24';
+      el.style.color = '#1E293B';
+      el.style.textDecoration = 'none';
+      el.style.fontWeight = '800';
+      el.style.opacity = '1';
+      el.style.borderRadius = '4px';
+    } else {
+      // 미일치: 흐리게
+      el.style.background = '';
+      el.style.color = '#CBD5E1';
+      el.style.textDecoration = 'none';
+      el.style.fontWeight = '400';
+      el.style.opacity = '0.4';
+    }
+  });
+};
+
+/* 학생 이름 마우스 오버 시 동일 학생 전체 강조 */
 window.highlightPLStudent = function(name, on) {
   document.querySelectorAll('[data-stuname]').forEach(el => {
     if (el.getAttribute('data-stuname') === name) {
@@ -2387,7 +2437,10 @@ window.editPLClass=function(termId,classId){
               const stu = pl_db.students[s.id] || {};
               return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:var(--surface2);border-radius:8px;">
                 <span style="font-weight:600;font-size:13px;">${escapeHtml(s.name)}<span style="font-weight:400;font-size:11px;color:var(--text-secondary);margin-left:6px;">${escapeHtml(stu.grade||'')}</span></span>
-                <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px;" onclick="window.removeStudentFromClassEdit('${s.id}','${classId}','${termId}')">삭제</button>
+                <div style="display:flex;gap:5px;">
+                  <button class="btn btn-pl-outline btn-sm" style="padding:3px 8px;font-size:11px;" onclick="window.closeModal();window.editPLStu('${s.id}')">수정</button>
+                  <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px;" onclick="window.removeStudentFromClassEdit('${s.id}','${classId}','${termId}')">삭제</button>
+                </div>
               </div>`;
             }).join('')
         }
