@@ -670,7 +670,7 @@
   <div class="header-right">
     <span class="save-indicator"><span class="dot"></span>자동 저장됨</span>
     <button class="btn btn-stat btn-sm" id="statsBtn" onclick="openStats()" style="display:none;">📊 통계</button>
-    <button class="btn btn-pl btn-sm" id="plRosterBtn" onclick="window.plGo('roster')" style="display:none;">👥 전체 명단</button>
+    <button class="btn btn-pl btn-sm" id="plRosterBtn" onclick="window.plGo('roster', view.plTermId)" style="display:none;">👥 전체 명단</button>
   </div>
 </header>
 
@@ -2037,7 +2037,7 @@ window.plGo = function(page, a1, a2, a3) {
   if (page==='home')    { view={page:'pl-home'}; }
   else if(page==='terms')  { view={page:'pl-terms', plTermId:a1}; }
   else if(page==='class')  { view={page:'pl-class', plTermId:a1, plClassId:a2}; plView.classId=a2; }
-  else if(page==='roster') { view={page:'pl-roster'}; }
+  else if(page==='roster') { view={page:'pl-roster', plTermId: a1 || view.plTermId}; }
   else if(page==='student'){ view={page:'pl-student', plStudentId:a1, plStudentName:a2}; }
   render();
 };
@@ -2054,7 +2054,7 @@ function renderPLHome() {
         <div class="page-title" style="color:#F59E0B;">⭐ PL 개별진도반</div>
         <div class="page-subtitle">분기를 선택하거나 새 분기를 만드세요</div>
       </div>
-      <button class="btn btn-pl-outline btn-sm" onclick="window.plGo('roster')">👥 전체 학생 명단</button>
+      <button class="btn btn-pl-outline btn-sm" onclick="window.plGo('roster','${termId}')">👥 전체 학생 명단</button>
     </div>
     <div class="toolbar" style="flex-wrap:wrap;gap:10px;align-items:center;">
       <label>연도</label>
@@ -2359,6 +2359,9 @@ window.deletePLClass=function(termId,classId){
 };
 window.editPLClass=function(termId,classId){
   const t=getPLTerm(termId); const cls=t?.classes.find(c=>c.id===classId); if(!cls) return;
+  const data=getPLClassData(classId);
+  const sortedStu=[...(data.students||[])].sort((a,b)=>a.name.localeCompare(b.name,'ko'));
+
   document.getElementById('modalTitle').textContent='반 정보 수정';
   document.getElementById('modalContent').innerHTML=`
     <div style="display:flex;flex-direction:column;gap:12px;">
@@ -2366,10 +2369,39 @@ window.editPLClass=function(termId,classId){
       <div><label>요일</label><select id="eCD" style="width:100%;">${['월','화','수','목','금','토','일'].map(d=>`<option ${cls.day===d?'selected':''}>${d}</option>`).join('')}</select></div>
       <div><label>시간</label><input type="text" id="eCT" value="${escapeHtml(cls.time)}" style="width:100%;"></div>
       <div><label>담임</label><input type="text" id="eTch" value="${escapeHtml(cls.teacher||'')}" style="width:100%;"></div>
-    </div>`;
+    </div>
+
+    <!-- 학생 목록 -->
+    <div style="border-top:1px solid var(--border);margin-top:16px;padding-top:14px;">
+      <div style="font-weight:700;font-size:13px;margin-bottom:10px;">👤 수강 학생 (${sortedStu.length}명)</div>
+      <div id="editClsStudentList" style="display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto;margin-bottom:12px;">
+        ${sortedStu.length === 0
+          ? `<div style="color:var(--text-secondary);font-size:13px;">등록된 학생이 없습니다</div>`
+          : sortedStu.map(s => {
+              const stu = pl_db.students[s.id] || {};
+              return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:var(--surface2);border-radius:8px;">
+                <span style="font-weight:600;font-size:13px;">${escapeHtml(s.name)}<span style="font-weight:400;font-size:11px;color:var(--text-secondary);margin-left:6px;">${escapeHtml(stu.grade||'')}</span></span>
+                <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px;" onclick="window.removeStudentFromClassEdit('${s.id}','${classId}','${termId}')">삭제</button>
+              </div>`;
+            }).join('')
+        }
+      </div>
+      <!-- 학생 추가 -->
+      <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px;">학생 추가</div>
+      <div style="display:flex;gap:6px;margin-bottom:6px;">
+        <input type="text" id="newStuName" placeholder="이름" style="flex:2;">
+        <select id="newStuGrade" style="flex:1.5;">
+          <option value="">학년</option>
+          ${['초1','초2','초3','초4','초5','초6','중1','중2','중3','고1','고2','고3'].map(g=>`<option>${g}</option>`).join('')}
+        </select>
+        <input type="text" id="newStuSchool" placeholder="학교" style="flex:2;">
+      </div>
+      <button class="btn btn-pl btn-sm" style="width:100%;" onclick="window.addStudentFromClassEdit('${classId}','${termId}')">+ 학생 추가</button>
+    </div>
+  `;
   document.getElementById('modalFooter').innerHTML=`
-    <button class="btn btn-primary" onclick="window.saveEditPLClass('${termId}','${classId}')">💾 저장</button>
-    <button class="btn btn-outline" onclick="window.closeModal()">취소</button>`;
+    <button class="btn btn-primary" onclick="window.saveEditPLClass('${termId}','${classId}')">💾 반 정보 저장</button>
+    <button class="btn btn-outline" onclick="window.closeModal()">닫기</button>`;
   document.getElementById('modal').style.display='block';
 };
 window.saveEditPLClass=async function(termId,classId){
@@ -2379,6 +2411,34 @@ window.saveEditPLClass=async function(termId,classId){
   cls.time=document.getElementById('eCT').value.trim();
   cls.teacher=document.getElementById('eTch').value.trim();
   await savePLDB(); window.closeModal(); view={page:'pl-terms',plTermId:termId}; render(); showToast('✅ 저장됨','success');
+};
+
+/* 반 수정 모달 - 학생 추가 */
+window.addStudentFromClassEdit = async function(classId, termId) {
+  const name = document.getElementById('newStuName')?.value.trim();
+  const grade = document.getElementById('newStuGrade')?.value;
+  const school = document.getElementById('newStuSchool')?.value.trim();
+  if (!name) { showToast('⚠️ 이름을 입력해주세요'); return; }
+  const data = getPLClassData(classId);
+  if (data.students.some(s => s.name === name)) { showToast('⚠️ 이미 등록된 학생입니다'); return; }
+  const sid = uid();
+  data.students.push({ id: sid, name });
+  pl_db.students[sid] = { name, school: school||'', grade: grade||'', course:'', period:'', endMonth:'', memo:'', sentLog:{}, history:[] };
+  await savePLDB();
+  showToast(`✅ '${name}' 추가 완료`, 'success');
+  window.editPLClass(termId, classId); // 모달 새로고침
+};
+
+/* 반 수정 모달 - 학생 삭제 */
+window.removeStudentFromClassEdit = function(sid, classId, termId) {
+  const stu = pl_db.students[sid];
+  showConfirm(`'${stu?.name}' 학생을 이 반에서 삭제할까요?`, async () => {
+    const data = getPLClassData(classId);
+    data.students = data.students.filter(s => s.id !== sid);
+    await savePLDB();
+    showToast('🗑️ 삭제됨');
+    window.editPLClass(termId, classId); // 모달 새로고침
+  });
 };
 window.copyPLStudents=async function(){
   const fromId=document.getElementById('plCopyFrom').value;
@@ -2962,62 +3022,72 @@ window.openPLStatsModal = function(termId, classId) {
 
 /* PL 전체 학생 명단 + 수강현황 */
 function renderPLRoster(){
-  const students=Object.entries(pl_db.students).sort((a,b)=>a[1].name.localeCompare(b[1].name,'ko'));
-  const stuCls={};
-  pl_db.terms.forEach(term=>term.classes.forEach(cls=>{
-    (pl_db.classes[cls.id]?.students||[]).forEach(s=>{
-      if(!stuCls[s.id])stuCls[s.id]=[];
-      stuCls[s.id].push({termName:term.name,className:cls.name});
-    });
-  }));
+  const termId = view.plTermId;
+  const term = getPLTerm(termId);
+  if (!term) return `<div class="empty-state">분기를 찾을 수 없습니다</div>`;
 
-  // 학생별 최근 발송이력 3개 날짜 수집 (student.history 기반)
-  const stuHistory={};
-  Object.entries(pl_db.students).forEach(([sid, stu]) => {
-    if (!stu.history || stu.history.length === 0) return;
-    const seen=new Set();
-    stuHistory[sid] = stu.history
-      .filter(h=>{ if(seen.has(h.date)) return false; seen.add(h.date); return true; })
-      .sort((a,b)=>b.sentAt-a.sentAt)
-      .slice(0,3);
+  // 이 분기의 반에 등록된 학생 목록 (가나다순, 중복 제거)
+  const stuSet = new Map(); // sid → {stu, classes:[]}
+  term.classes.forEach(cls => {
+    (pl_db.classes[cls.id]?.students || []).forEach(s => {
+      if (!stuSet.has(s.id)) stuSet.set(s.id, { stu: pl_db.students[s.id], classes: [] });
+      stuSet.get(s.id).classes.push(cls.name);
+    });
+  });
+  const students = [...stuSet.entries()]
+    .filter(([, v]) => v.stu)
+    .sort(([, a], [, b]) => a.stu.name.localeCompare(b.stu.name, 'ko'));
+
+  // 학생별 이 분기 발송이력 최근 3개
+  const termClassIds = new Set(term.classes.map(c => c.id));
+  const stuHistory = {};
+  students.forEach(([sid, {stu}]) => {
+    const seen = new Set();
+    stuHistory[sid] = (stu.history || [])
+      .filter(h => termClassIds.has(h.classId))
+      .filter(h => { if(seen.has(h.date)) return false; seen.add(h.date); return true; })
+      .sort((a,b) => b.sentAt - a.sentAt)
+      .slice(0, 3);
   });
 
   return `
     <div class="page-title-row">
       <div>
-        <button class="btn btn-outline btn-sm" onclick="window.plGo('home')" style="margin-bottom:8px;">← 분기 목록</button>
-        <div class="page-title" style="color:#F59E0B;">👥 전체 학생 명단 및 수강현황</div>
-        <div class="page-subtitle">등록된 모든 PL 학생 (${students.length}명)</div>
+        <button class="btn btn-outline btn-sm" onclick="window.plGo('terms','${termId}')" style="margin-bottom:8px;">← 반 목록</button>
+        <div class="page-title" style="color:#F59E0B;">👥 ${escapeHtml(term.name)} 전체 학생 명단</div>
+        <div class="page-subtitle">${term.venue} · ${students.length}명</div>
       </div>
     </div>
     ${students.length===0
-      ?`<div class="empty-state"><div class="big-emoji">🧒</div>등록된 학생이 없습니다</div>`
-      :`<div class="card"><div class="card-body" style="padding:0;">
-        <table class="pl-roster-table">
-          <thead><tr><th>이름</th><th>학교</th><th>학년</th><th>과정</th><th>종료월</th><th>수강 중인 반</th><th>최근 발송</th><th>특이사항</th><th></th></tr></thead>
-          <tbody>
-            ${students.map(([sid,stu])=>{
-              const cls=stuCls[sid]||[];
-              const hist=stuHistory[sid]||[];
-              const histHtml = hist.length===0
-                ? `<span style="color:#D1D5DB;font-size:11px;">-</span>`
-                : hist.map(h=>`<span style="display:inline-block;background:var(--success-light);color:var(--success);border:1px solid #A7F3D0;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap;">${escapeHtml(h.date)}</span>`).join('');
-              return `<tr class="clickable" onclick="window.plGo('student','${sid}','${escapeHtml(stu.name)}')">
-                <td><b>${escapeHtml(stu.name)}</b></td>
-                <td>${escapeHtml(stu.school||'-')}</td>
-                <td>${escapeHtml(stu.grade||'-')}</td>
-                <td>${escapeHtml(stu.course||'-')}</td>
-                <td>${escapeHtml(stu.endMonth||'-')}</td>
-                <td><div style="display:flex;gap:4px;flex-wrap:wrap;">${cls.map(c=>`<span class="pl-badge" title="${escapeHtml(c.termName)}">${escapeHtml(c.className)}</span>`).join('')||'-'}</div></td>
-                <td><div style="display:flex;gap:4px;flex-wrap:wrap;">${histHtml}</div></td>
-                <td style="max-width:140px;font-size:12px;color:var(--text-secondary);">${escapeHtml(stu.memo||'')}</td>
-                <td style="white-space:nowrap;"><button class="btn btn-pl-outline btn-sm" onclick="event.stopPropagation();window.editPLStu('${sid}')">수정</button>
-                <button class="btn btn-danger btn-sm" style="margin-left:4px;" onclick="event.stopPropagation();window.deletePLStudent('${sid}')">삭제</button></td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>
-      </div></div>`}`;
+      ? `<div class="empty-state"><div class="big-emoji">🧒</div>이 분기에 등록된 학생이 없습니다</div>`
+      : `<div class="card"><div class="card-body" style="padding:0;">
+          <table class="pl-roster-table">
+            <thead><tr><th>이름</th><th>학교</th><th>학년</th><th>과정</th><th>종료월</th><th>수강 중인 반</th><th>최근 발송</th><th>특이사항</th><th></th></tr></thead>
+            <tbody>
+              ${students.map(([sid, {stu, classes}]) => {
+                const hist = stuHistory[sid] || [];
+                const histHtml = hist.length === 0
+                  ? `<span style="color:#D1D5DB;font-size:11px;">-</span>`
+                  : hist.map(h => `<span style="display:inline-block;background:var(--success-light);color:var(--success);border:1px solid #A7F3D0;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap;">${escapeHtml(h.date)}</span>`).join('');
+                return `<tr class="clickable" onclick="window.plGo('student','${sid}','${escapeHtml(stu.name)}')">
+                  <td><b>${escapeHtml(stu.name)}</b></td>
+                  <td>${escapeHtml(stu.school||'-')}</td>
+                  <td>${escapeHtml(stu.grade||'-')}</td>
+                  <td>${escapeHtml(stu.course||'-')}</td>
+                  <td>${escapeHtml(stu.endMonth||'-')}</td>
+                  <td><div style="display:flex;gap:4px;flex-wrap:wrap;">${classes.map(c=>`<span class="pl-badge">${escapeHtml(c)}</span>`).join('')}</div></td>
+                  <td><div style="display:flex;gap:4px;flex-wrap:wrap;">${histHtml}</div></td>
+                  <td style="max-width:120px;font-size:12px;color:var(--text-secondary);">${escapeHtml(stu.memo||'')}</td>
+                  <td style="white-space:nowrap;">
+                    <button class="btn btn-pl-outline btn-sm" onclick="event.stopPropagation();window.editPLStu('${sid}')">수정</button>
+                    <button class="btn btn-danger btn-sm" style="margin-left:4px;" onclick="event.stopPropagation();window.deletePLStudent('${sid}')">삭제</button>
+                  </td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div></div>`
+    }`;
 }
 
 /* PL 학생 개별 페이지 */
@@ -3033,7 +3103,7 @@ function renderPLStudentPage(){
   return `
     <div class="page-title-row">
       <div>
-        <button class="btn btn-outline btn-sm" onclick="window.plGo('roster')" style="margin-bottom:8px;">← 명단으로</button>
+        <button class="btn btn-outline btn-sm" onclick="window.plGo('roster','${view.plTermId||''}')" style="margin-bottom:8px;">← 명단으로</button>
         <div class="page-title">${escapeHtml(stu.name)}</div>
         <div class="page-subtitle">${escapeHtml(stu.course||'')} · ${escapeHtml(stu.grade||'')} · ${escapeHtml(stu.school||'')}</div>
       </div>
