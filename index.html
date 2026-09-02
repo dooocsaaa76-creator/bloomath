@@ -2304,67 +2304,70 @@ function buildPLRosterTable(termId, term, clsList, tableTitle) {
   const maxRows=Math.max(...colStudents.map(s=>s.length),0);
   const dayColSpan={};
   days.forEach(day=>{ dayColSpan[day]=dayClsMap[day].length; });
-  const BORDER_DAY='border-left:2.5px solid #64748B;';
-  const CELL_W='min-width:85px;width:85px;';
-  let html=`<div class="card" style="margin-bottom:18px;">
+  const BD='border-left:2.5px solid #64748B;';
+  const CW='min-width:85px;width:85px;';
+
+  // 요일 헤더 행
+  let dayRow='', nameRow='', timeRow='', tchrRow='';
+  days.forEach((day,di)=>{
+    const bl=di>0?BD:'';
+    dayRow+=`<td colspan="${dayClsMap[day].length}" style="${bl}${CW}padding:7px 4px;text-align:center;background:#1E293B;color:#fff;font-weight:800;font-size:13px;">${day}요일</td>`;
+  });
+  allCols.forEach(({day,cls,isFirstOfDay},ci)=>{
+    const bl=(isFirstOfDay&&ci>0)?BD:'';
+    const isB=cls.name.endsWith('B')||cls.name==='수B';
+    const bg=isB?'#DC2626':'#475569';
+    nameRow+=`<td style="${bl}${CW}padding:6px 3px;text-align:center;background:${bg};color:#fff;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" onclick="window.plGo('class','${termId}','${cls.id}')" title="${escapeHtml(cls.name)}">${escapeHtml(cls.name)}</td>`;
+    timeRow+=`<td style="${bl}${CW}padding:3px 4px;text-align:center;background:#E2E8F0;font-size:11px;color:#475569;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(cls.time)}</td>`;
+    tchrRow+=`<td style="${bl}${CW}padding:3px 4px;text-align:center;background:#F8FAFC;font-size:11px;color:#64748B;font-weight:600;border-bottom:1.5px solid #CBD5E1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${cls.teacher||'-'}</td>`;
+  });
+
+  // 학생 행
+  let stuRows='';
+  for(let row=0; row<maxRows+2; row++){
+    let cells='';
+    allCols.forEach(({day,cls,isFirstOfDay},ci)=>{
+      const bl=(isFirstOfDay&&ci>0)?BD:'';
+      const stu=colStudents[ci][row];
+      if(!stu){
+        const bg=row>=colStudents[ci].length?'#FAFAFA':'transparent';
+        cells+=`<td style="${bl}${CW}padding:6px 3px;border-top:1px solid #F1F5F9;background:${bg};"></td>`;
+      } else {
+        const stuInfo=pl_db.students[stu.id]||{};
+        const grade=(stuInfo.grade||'').replace(/초|중|고/,'');
+        const sn=escapeHtml(stu.name);
+        cells+=`<td style="${bl}${CW}padding:6px 3px;border-top:1px solid #F1F5F9;text-align:center;">
+          <span data-stuname="${sn}"
+            onclick="window.goToPLStudent('${termId}','${cls.id}','${stu.id}')"
+            onmouseenter="window.highlightPLStudent('${sn}',true)"
+            onmouseleave="window.highlightPLStudent('${sn}',false)"
+            style="cursor:pointer;font-weight:600;color:var(--primary);font-size:13.5px;white-space:nowrap;border-radius:4px;padding:2px 4px;transition:background 0.12s,color 0.12s;"
+          >${sn}<sup style="font-size:9.5px;color:#94A3B8;">${grade}</sup></span>
+        </td>`;
+      }
+    });
+    stuRows+=`<tr>${cells}</tr>`;
+  }
+
+  return `<div class="card" style="margin-bottom:18px;">
     <div class="card-header" style="justify-content:space-between;">
       <div style="display:flex;align-items:center;gap:8px;">
-        <div class="card-icon" style="background:#FFF3E0;">\u{1F465}</div>
-        <div><div class="card-title">${tableTitle}</div><div class="card-subtitle">이름 클릭 → 문자 입력 · 마우스 올리면 같은 학생 강조 (두 테이블 연동)</div></div>
+        <div class="card-icon" style="background:#FFF3E0;">👥</div>
+        <div><div class="card-title">${tableTitle}</div><div class="card-subtitle">이름 클릭 → 문자 입력 · 마우스 올리면 같은 학생 강조</div></div>
       </div>
     </div>
     <div class="card-body" style="padding:0;overflow-x:auto;">
       <table style="border-collapse:collapse;font-size:13.5px;table-layout:fixed;">
-        <tr>
-          ${days.map((day,di)=>{
-            const bl=di>0?BORDER_DAY:'';
-            return `<td colspan="${dayColSpan[day]}" style="${bl}${CELL_W}padding:7px 4px;text-align:center;background:#1E293B;color:#fff;font-weight:800;font-size:13px;">${day}요일</td>`;
-          }).join('')}
-        </tr>
-        <tr>
-          ${allCols.map(({day,cls,isFirstOfDay},ci)=>{
-            const bl=isFirstOfDay&&ci>0?BORDER_DAY:'';
-            const isB=cls.name.includes('B')||cls.name==='수B';
-            const bg=isB?'#DC2626':'#475569';
-            return `<td style="${bl}${CELL_W}padding:6px 3px;text-align:center;background:${bg};color:#fff;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" onclick="window.plGo('class','${termId}','${cls.id}')" title="${escapeHtml(cls.name)}">${escapeHtml(cls.name)}</td>`;
-          }).join('')}
-        </tr>
-        <tr>
-          ${allCols.map(({day,cls,isFirstOfDay},ci)=>{
-            const bl=isFirstOfDay&&ci>0?BORDER_DAY:'';
-            return `<td style="${bl}${CELL_W}padding:3px 4px;text-align:center;background:#E2E8F0;font-size:11px;color:#475569;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(cls.time)}</td>`;
-          }).join('')}
-        </tr>
-        <tr>
-          ${allCols.map(({day,cls,isFirstOfDay},ci)=>{
-            const bl=isFirstOfDay&&ci>0?BORDER_DAY:'';
-            return `<td style="${bl}${CELL_W}padding:3px 4px;text-align:center;background:#F8FAFC;font-size:11px;color:#64748B;font-weight:600;border-bottom:1.5px solid #CBD5E1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${cls.teacher||'-'}</td>`;
-          }).join('')}
-        </tr>
-        ${Array.from({length:maxRows+2},(_,row)=>`
-          <tr>
-            ${allCols.map(({day,cls,isFirstOfDay},ci)=>{
-              const bl=isFirstOfDay&&ci>0?BORDER_DAY:'';
-              const stu=colStudents[ci][row];
-              if(!stu) return \`<td style="${bl}${CELL_W}padding:6px 3px;border-top:1px solid #F1F5F9;background:\${row>=colStudents[ci].length?'#FAFAFA':'transparent'};"></td>\`;
-              const stuInfo=pl_db.students[stu.id]||{};
-              const grade=(stuInfo.grade||'').replace(/초|중|고/,'');
-              return \`<td style="${bl}${CELL_W}padding:6px 3px;border-top:1px solid #F1F5F9;text-align:center;">
-                <span data-stuname="\${escapeHtml(stu.name)}"
-                  onclick="window.goToPLStudent('${termId}','\${cls.id}','\${stu.id}')"
-                  onmouseenter="document.querySelectorAll('[data-stuname=\\\''+this.getAttribute('data-stuname')+'\\\'\\]').forEach(e=>{e.style.background='#FEF3C7';e.style.color='#92400E';e.style.fontWeight='800';})"
-                  onmouseleave="document.querySelectorAll('[data-stuname=\\\''+this.getAttribute('data-stuname')+'\\\'\\]').forEach(e=>{e.style.background='';e.style.color='var(--primary)';e.style.fontWeight='600';})"
-                  style="cursor:pointer;font-weight:600;color:var(--primary);font-size:13.5px;white-space:nowrap;border-radius:4px;padding:2px 4px;transition:background 0.12s,color 0.12s;"
-                >\${escapeHtml(stu.name)}<sup style="font-size:9.5px;color:#94A3B8;">\${grade}</sup></span>
-              </td>\`;
-            }).join('')}
-          </tr>
-        `).join('')}
+        <tr>${dayRow}</tr>
+        <tr>${nameRow}</tr>
+        <tr>${timeRow}</tr>
+        <tr>${tchrRow}</tr>
+        ${stuRows}
       </table>
     </div>
   </div>`;
-  return html;
 }
+
 
 /* 학생 이름 클릭 → PL 반 문자입력 화면 + 해당 학생 자동 선택 */
 window.goToPLStudent = function(termId, classId, studentId) {
