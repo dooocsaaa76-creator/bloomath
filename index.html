@@ -2515,13 +2515,32 @@ window.addStudentFromClassEdit = async function(classId, termId) {
   const school = document.getElementById('newStuSchool')?.value.trim();
   if (!name) { showToast('⚠️ 이름을 입력해주세요'); return; }
   const data = getPLClassData(classId);
-  if (data.students.some(s => s.name === name)) { showToast('⚠️ 이미 등록된 학생입니다'); return; }
-  const sid = uid();
+  if (data.students.some(s => s.name === name)) { showToast('⚠️ 이미 이 반에 등록된 학생입니다'); return; }
+
+  // 2번: 현재 분기 내 동일 학생(이름+학년+학교) 체크
+  const term = getPLTerm(termId);
+  const termClassIds = new Set((term?.classes||[]).map(c=>c.id));
+  const existingStu = Object.entries(pl_db.students).find(([sid, stu]) => {
+    if (stu.name !== name) return false;
+    if (grade && stu.grade && stu.grade !== grade) return false;
+    if (school && stu.school && stu.school !== school) return false;
+    // 이 분기에 속한 학생인지 확인
+    return [...termClassIds].some(cid => pl_db.classes[cid]?.students?.some(s=>s.id===sid));
+  });
+
+  let sid;
+  if (existingStu) {
+    // 기존 학생에 이 반만 추가
+    sid = existingStu[0];
+    showToast(`✅ 기존 학생 '${name}'을 이 반에 추가했습니다`, 'success');
+  } else {
+    sid = uid();
+    pl_db.students[sid] = { name, school: school||'', grade: grade||'', course:'', period:'', endMonth:'', memo:'', sentLog:{}, history:[] };
+    showToast(`✅ '${name}' 추가 완료`, 'success');
+  }
   data.students.push({ id: sid, name });
-  pl_db.students[sid] = { name, school: school||'', grade: grade||'', course:'', period:'', endMonth:'', memo:'', sentLog:{}, history:[] };
   await savePLDB();
-  showToast(`✅ '${name}' 추가 완료`, 'success');
-  window.editPLClass(termId, classId); // 모달 새로고침
+  window.editPLClass(termId, classId);
 };
 
 /* 반 수정 모달 - 학생 삭제 */
@@ -2721,15 +2740,39 @@ window.openPLAddStudent=function(){
 };
 window.confirmPLAddStudent=async function(){
   const name=document.getElementById('plAddName').value.trim();
+  const grade=document.getElementById('plAddGrade').value;
+  const school=document.getElementById('plAddSchool').value.trim();
   if(!name){showToast('⚠️ 이름을 입력해주세요');return;}
-  const sid='pl_'+uid(); const data=getPLClassData(view.plClassId);
+  const classId=view.plClassId; const data=getPLClassData(classId);
+  if(data.students.some(s=>s.name===name)){showToast('⚠️ 이미 이 반에 등록된 학생입니다');return;}
+
+  // 2번: 현재 분기 내 동일 학생 체크
+  const termId=view.plTermId;
+  const term=getPLTerm(termId);
+  const termClassIds=new Set((term?.classes||[]).map(c=>c.id));
+  const existingStu=Object.entries(pl_db.students).find(([sid,stu])=>{
+    if(stu.name!==name) return false;
+    if(grade&&stu.grade&&stu.grade!==grade) return false;
+    if(school&&stu.school&&stu.school!==school) return false;
+    return [...termClassIds].some(cid=>pl_db.classes[cid]?.students?.some(s=>s.id===sid));
+  });
+
+  let sid;
+  if(existingStu){
+    sid=existingStu[0];
+    showToast(`✅ 기존 학생 '${name}'을 이 반에 추가했습니다`,'success');
+  } else {
+    sid='pl_'+uid();
+    pl_db.students[sid]={name,school,grade,
+      course:document.getElementById('plAddCourse').value.trim(),
+      period:document.getElementById('plAddPeriod').value.trim(),
+      endMonth:document.getElementById('plAddEndMonth').value.trim(),
+      memo:document.getElementById('plAddMemo').value.trim(),sentLog:{},history:[]};
+    showToast(`✅ '${name}' 추가 완료`,'success');
+  }
   data.students.push({id:sid,name});
-  pl_db.students[sid]={name,school:document.getElementById('plAddSchool').value.trim(),
-    grade:document.getElementById('plAddGrade').value,course:document.getElementById('plAddCourse').value.trim(),
-    period:document.getElementById('plAddPeriod').value.trim(),endMonth:document.getElementById('plAddEndMonth').value.trim(),
-    memo:document.getElementById('plAddMemo').value.trim(),sentLog:{},history:[]};
   await savePLDB(); document.getElementById('plAddStudentModal').style.display='none';
-  renderPLStudentTabs(); showToast(`✅ '${name}' 추가 완료`,'success');
+  renderPLStudentTabs();
 };
 window.removePLStudent=function(sid){
   const s=pl_db.students[sid];
@@ -3298,11 +3341,20 @@ window.editPLStu=function(sid){
   pl_db.terms.forEach(term=>term.classes.forEach(cls=>{
     if(pl_db.classes[cls.id]?.students?.some(s=>s.id===sid)) myClassIds.add(cls.id);
   }));
-  // 현재 분기의 모든 반 (수강 추가 가능 목록)
-  const allTermClasses=[];
-  pl_db.terms.forEach(term=>term.classes.forEach(cls=>{
-    allTermClasses.push({termId:term.id,termName:term.name,cls});
-  }));
+  // 1번: 현재 열람 중인 분기(또는 같은 venue 최신 분기)의 반만 추가 가능 목록에 표시
+  const currentTermId = window._plCurrentTermId;
+  const currentTerm = currentTermId ? getPLTerm(currentTermId) : null;
+  // 현재 분기가 없으면 모든 분기 표시 (fallback)
+  const addableCls = [];
+  if (currentTerm) {
+    currentTerm.classes.forEach(cls => {
+      if (!myClassIds.has(cls.id)) addableCls.push({termId:currentTerm.id, termName:currentTerm.name, cls});
+    });
+  } else {
+    pl_db.terms.forEach(term=>term.classes.forEach(cls=>{
+      if (!myClassIds.has(cls.id)) addableCls.push({termId:term.id, termName:term.name, cls});
+    }));
+  }
 
   document.getElementById('modalTitle').textContent=`학생 정보 수정 — ${stu.name}`;
   document.getElementById('modalContent').innerHTML=`
@@ -3332,7 +3384,7 @@ window.editPLStu=function(sid){
         <div style="display:flex;gap:6px;">
           <select id="eAddClass" style="flex:1;font-size:12px;">
             <option value="">— 반 선택 —</option>
-            ${allTermClasses.filter(({cls})=>!myClassIds.has(cls.id)).map(({termId,termName,cls})=>
+            ${addableCls.map(({termId,termName,cls})=>
               `<option value="${cls.id}">${escapeHtml(termName)} › ${escapeHtml(cls.name)}</option>`
             ).join('')}
           </select>
