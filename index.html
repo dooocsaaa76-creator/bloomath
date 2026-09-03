@@ -2824,14 +2824,19 @@ window.selectPLStudent=function(sid){
 
     <div class="field">
       <label>L-Class 진도</label>
-      <textarea id="plLC_${sid}" placeholder="진도 내용" style="min-height:70px;" oninput="window.updatePLPreview('${sid}')">${escapeHtml(session.lclass||'')}</textarea>
+      <textarea id="plLC_${sid}" placeholder="진도 내용" style="min-height:36px;height:36px;" oninput="window.updatePLPreview('${sid}')">${escapeHtml(session.lclass||'')}</textarea>
     </div>
     <div class="field">
       <label>가정학습 과제</label>
-      <textarea id="plHW_${sid}" placeholder="예: ~p.109" style="min-height:55px;" oninput="window.updatePLPreview('${sid}')">${escapeHtml(session.homework||'')}</textarea>
+      <textarea id="plHW_${sid}" placeholder="예: ~p.109" style="min-height:36px;height:36px;" oninput="window.updatePLPreview('${sid}')">${escapeHtml(session.homework||'')}</textarea>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+    <div class="field">
+      <label>TEST 범위</label>
+      <input type="text" id="plTestRange_${sid}" placeholder="예: 유리수와 순환소수~단다항식계산" value="${escapeHtml(String(session.testRange||''))}" oninput="window.updatePLPreview('${sid}')">
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;">
       <div class="field">
         <label>TEST 점수</label>
         <input type="text" id="plTestScore_${sid}" placeholder="예: 40" value="${escapeHtml(String(session.testScore||''))}" oninput="window.updatePLPreview('${sid}')">
@@ -2840,11 +2845,8 @@ window.selectPLStudent=function(sid){
         <label>TEST 만점</label>
         <input type="text" id="plTestMax_${sid}" placeholder="예: 50" value="${escapeHtml(String(session.testMax||''))}" oninput="window.updatePLPreview('${sid}')">
       </div>
-    </div>
-
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
       <div class="field">
-        <label>과제이행 등급 <span style="font-size:11px;font-weight:400;color:var(--text-secondary);">(A/B/C 등)</span></label>
+        <label>과제이행 등급</label>
         <input type="text" id="plHwGrade_${sid}" placeholder="예: A" value="${escapeHtml(String(session.hwGrade||''))}" oninput="window.updatePLPreview('${sid}')">
       </div>
     </div>
