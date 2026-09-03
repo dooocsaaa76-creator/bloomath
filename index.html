@@ -2214,22 +2214,24 @@ function renderPLTerms() {
   const prevTerm = sameVenueTerms.length > 0 ? sameVenueTerms[0] : null;
 
   // 월~목 요일만 학생명단 표 생성
-  // 초등PL 반 (월~금) / 중등PL&주말 반 (수A/B, 금, 토, 일)
-  const SECONDARY_DAYS = ['수A','수B','금','토1부','토2부','토3부A','토3부B','일'];
-  const isSecondary = cls => {
-    // 시간이 5:00 이후 시작하거나 토/일 또는 이름이 수A/수B/금
-    return ['토','일'].includes(cls.day) ||
-           (cls.day === '수' && (cls.name === '수A' || cls.name === '수B' || cls.time.startsWith('5'))) ||
-           (cls.day === '금' && cls.time.startsWith('7'));
-  };
-
-  const elementaryCls = sortClassesByTime(term.classes.filter(c => !isSecondary(c)));
-  const secondaryCls  = sortClassesByTime(term.classes.filter(c => isSecondary(c)));
-
-  const rosterDays = ['월','화','수','목'].filter(d => days.includes(d));
-  const elemTable = elementaryCls.length > 0 ? buildPLRosterTable(termId, term, elementaryCls, '초등PL 학생명단') : '';
-  const secTable  = secondaryCls.length  > 0 ? buildPLRosterTable(termId, term, secondaryCls,  '중등PL & 주말단과 학생명단') : '';
-  const rosterTable = elemTable + secTable;
+  // 테이블 구성: 영재관은 초등/중등 2개, 프리미엄관은 1개
+  let rosterTable = '';
+  if (term.venue === '영재관') {
+    // 영재관: 초등PL(월~금 1~2부)과 중등PL&주말 분리
+    const isSecondary = cls =>
+      ['토','일'].includes(cls.day) ||
+      (cls.day === '수' && (cls.name === '수A' || cls.name === '수B' || cls.time.startsWith('5'))) ||
+      (cls.day === '금' && cls.time.startsWith('7'));
+    const elementaryCls = sortClassesByTime(term.classes.filter(c => !isSecondary(c)));
+    const secondaryCls  = sortClassesByTime(term.classes.filter(c =>  isSecondary(c)));
+    const elemTable = elementaryCls.length > 0 ? buildPLRosterTable(termId, term, elementaryCls, '초등PL 학생명단') : '';
+    const secTable  = secondaryCls.length  > 0 ? buildPLRosterTable(termId, term, secondaryCls,  '중등PL & 주말단과 학생명단') : '';
+    rosterTable = elemTable + secTable;
+  } else {
+    // 프리미엄관 등: 단일 테이블
+    const allCls = sortClassesByTime(term.classes);
+    rosterTable = allCls.length > 0 ? buildPLRosterTable(termId, term, allCls, '초중등PL 학생명단') : '';
+  }
 
   return `
     <div class="page-title-row">
@@ -2840,6 +2842,13 @@ window.selectPLStudent=function(sid){
       </div>
     </div>
 
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+      <div class="field">
+        <label>과제이행 등급 <span style="font-size:11px;font-weight:400;color:var(--text-secondary);">(A/B/C 등)</span></label>
+        <input type="text" id="plHwGrade_${sid}" placeholder="예: A" value="${escapeHtml(String(session.hwGrade||''))}" oninput="window.updatePLPreview('${sid}')">
+      </div>
+    </div>
+
     <div class="field">
       <label>코멘트</label>
       <textarea id="plCmt_${sid}" placeholder="오늘 수업 내용, 칭찬, 주의사항 등" style="min-height:90px;" oninput="window.updatePLPreview('${sid}')">${escapeHtml(session.comment||'')}</textarea>
@@ -2960,6 +2969,8 @@ window.updatePLPreview=function(sid){
     g('plHW_'+sid),
     g('plTestScore_'+sid),
     g('plTestMax_'+sid),
+    g('plHwGrade_'+sid),
+    g('plTestRange_'+sid),
     g('plCmt_'+sid)
   );
   const p=document.getElementById('plClassPreview');
@@ -2968,7 +2979,7 @@ window.updatePLPreview=function(sid){
 
 window.resetPLInput=function(sid){
   showConfirm('입력 내용을 초기화할까요?',()=>{
-    ['plLC_','plHW_','plCmt_','plSess_','plDate_','plTestScore_','plTestMax_','plCourse_'].forEach(p=>{
+    ['plLC_','plHW_','plCmt_','plSess_','plDate_','plTestScore_','plTestMax_','plCourse_','plHwGrade_','plTestRange_'].forEach(p=>{
       const e=document.getElementById(p+sid); if(e)e.value='';
     });
     // 날짜 드롭다운도 초기화
@@ -2981,7 +2992,7 @@ window.resetPLInput=function(sid){
   });
 };
 
-function buildPLMsg(course, name, date, sn, lc, hw, testScore, testMax, cmt) {
+function buildPLMsg(course, name, date, sn, lc, hw, testScore, testMax, hwGrade, testRange, cmt) {
   const n = name || '학생';
   const cr = course || '';
   let m = '';
@@ -2989,7 +3000,10 @@ function buildPLMsg(course, name, date, sn, lc, hw, testScore, testMax, cmt) {
   m += `${n}학생의 ${cr} ${sn ? sn+'회차' : ''} 수업안내\n\n`;
   if (lc) m += `■ L-Class진도\n${lc}\n\n`;
   if (hw) m += `■ 가정학습 과제\n${hw}\n\n`;
-  if (testScore) m += `일일TEST: ${testScore}점${testMax ? ` / ${testMax}점 만점` : ''}\n\n`;
+  if (hwGrade) m += `* 과제이행 등급 : ${hwGrade}\n`;
+  if (testRange) m += `* 일일TEST범위 : ${testRange}\n`;
+  if (testScore) m += `* 일테결과 : ${testScore}점${testMax ? ` / ${testMax}점 만점` : ''}\n`;
+  if (hwGrade || testRange || testScore) m += '\n';
   if (cmt) m += cmt;
   return m.trim();
 }
@@ -3006,6 +3020,8 @@ function getPLCurrentMsg(sid) {
     g('plHW_'+sid),
     g('plTestScore_'+sid),
     g('plTestMax_'+sid),
+    g('plHwGrade_'+sid),
+    g('plTestRange_'+sid),
     g('plCmt_'+sid)
   );
 }
@@ -3029,6 +3045,8 @@ window.savePLSess=async function(sid){
     homework:  g('plHW_'+sid),
     testScore: g('plTestScore_'+sid),
     testMax:   g('plTestMax_'+sid),
+    hwGrade:   g('plHwGrade_'+sid),
+    testRange: g('plTestRange_'+sid),
     comment:   g('plCmt_'+sid)
   };
   if(!data.sessions)data.sessions=[]; const idx=data.sessions.findIndex(s=>s.studentId===sid);
@@ -3054,6 +3072,8 @@ window.markPLSent=async function(sid){
     homework:  g('plHW_'+target),
     testScore: g('plTestScore_'+target),
     testMax:   g('plTestMax_'+target),
+    hwGrade:   g('plHwGrade_'+target),
+    testRange: g('plTestRange_'+target),
     comment:   g('plCmt_'+target)
   };
   if(!data.sessions)data.sessions=[];
