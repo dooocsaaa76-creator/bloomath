@@ -1296,7 +1296,14 @@ function renderClassPage() {
           <div class="divider"></div>
           <div class="field" id="studentInfoBox" style="background:var(--surface2);border-radius:8px;padding:10px 12px;font-size:12.5px;color:var(--text-secondary);"></div>
           <div class="field">
-            <label>개별 코멘트</label>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+              <label style="margin-bottom:0;">개별 코멘트</label>
+              <button class="btn btn-sm" id="bmAiBtn"
+                onclick="window.generateBMComment()"
+                style="background:linear-gradient(135deg,#6366F1,#8B5CF6);color:#fff;border:none;padding:5px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:5px;">
+                ✨ AI 코멘트 생성
+              </button>
+            </div>
             <textarea id="comment" placeholder="오늘 수업에서 이 학생에 대한 개별 내용을 입력하세요" style="min-height:130px"></textarea>
             <div class="char-count" id="charCount">0자</div>
           </div>
@@ -2852,7 +2859,14 @@ window.selectPLStudent=function(sid){
     </div>
 
     <div class="field">
-      <label>코멘트</label>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+        <label style="margin-bottom:0;">코멘트</label>
+        <button class="btn btn-sm"
+          onclick="window.generatePLComment('${sid}')"
+          style="background:linear-gradient(135deg,#6366F1,#8B5CF6);color:#fff;border:none;padding:5px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:5px;">
+          ✨ AI 코멘트 생성
+        </button>
+      </div>
       <textarea id="plCmt_${sid}" placeholder="오늘 수업 내용, 칭찬, 주의사항 등" style="min-height:90px;" oninput="window.updatePLPreview('${sid}')">${escapeHtml(session.comment||'')}</textarea>
     </div>
   `;
@@ -3451,6 +3465,135 @@ window.savePLStu=async function(sid){
   stu.endMonth=document.getElementById('eEnd').value.trim();
   stu.memo=document.getElementById('eMemo').value.trim();
   await savePLDB(); window.closeModal(); render(); showToast('✅ 저장되었습니다','success');
+};
+
+/* ===========================================================
+   AI 코멘트 자동 생성 (Anthropic API)
+=========================================================== */
+async function callClaudeAPI(prompt) {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1000,
+      messages: [{ role: 'user', content: prompt }]
+    })
+  });
+  if (!res.ok) throw new Error('API 오류: ' + res.status);
+  const data = await res.json();
+  return data.content?.[0]?.text || '';
+}
+
+// BM 코멘트 생성
+window.generateBMComment = async function() {
+  const btn = document.getElementById('bmAiBtn');
+  const date   = document.getElementById('date')?.value || '';
+  const prog   = document.getElementById('progress')?.value || '';
+  const hw     = document.getElementById('homework')?.value || '';
+  const stuEl  = document.querySelector('.tab-btn.active');
+  const stuName = stuEl?.textContent?.trim().replace(/✓/g,'').trim() || '';
+  const curComment = document.getElementById('comment')?.value?.trim() || '';
+
+  if (!stuName) { showToast('⚠️ 학생을 먼저 선택해주세요'); return; }
+  if (!prog && !hw) { showToast('⚠️ 진도 또는 과제를 먼저 입력해주세요'); return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '⏳ 생성 중...';
+
+  try {
+    const prevComments = curComment ? `\n\n참고할 이전 코멘트:\n"${curComment}"` : '';
+    const prompt = `당신은 수학학원 선생님입니다. 학부모님께 보내는 따뜻하고 전문적인 수업 코멘트를 작성해주세요.
+
+학생명: ${stuName}
+수업날짜: ${date}
+진도: ${prog}
+과제: ${hw}${prevComments}
+
+조건:
+- 학부모님께 보내는 문자 메시지 형식 (안녕하세요~~ 로 시작)
+- 오늘 수업 내용과 학생 성취를 구체적으로 언급
+- 따뜻하고 격려하는 톤
+- 2~4문장 분량
+- "${stuName}학생" 또는 "${stuName}"으로 자연스럽게 호칭
+- 코멘트 내용만 출력 (설명 없이)`;
+
+    const result = await callClaudeAPI(prompt);
+    const cmtEl = document.getElementById('comment');
+    if (cmtEl) {
+      cmtEl.value = result.trim();
+      cmtEl.dispatchEvent(new Event('input'));
+    }
+    showToast('✨ AI 코멘트 생성 완료!', 'success');
+  } catch(e) {
+    showToast('⚠️ 생성 실패: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '✨ AI 코멘트 생성';
+  }
+};
+
+// PL 코멘트 생성
+window.generatePLComment = async function(sid) {
+  const stu = pl_db.students[sid];
+  if (!stu) { showToast('⚠️ 학생 정보가 없습니다'); return; }
+
+  const g = id => document.getElementById(id)?.value || '';
+  const course    = g('plCourse_'+sid) || stu.course || '';
+  const date      = g('plDate_'+sid) || '';
+  const sessNum   = g('plSess_'+sid) || '';
+  const lclass    = g('plLC_'+sid) || '';
+  const hw        = g('plHW_'+sid) || '';
+  const testRange = g('plTestRange_'+sid) || '';
+  const testScore = g('plTestScore_'+sid) || '';
+  const testMax   = g('plTestMax_'+sid) || '';
+  const hwGrade   = g('plHwGrade_'+sid) || '';
+  const curComment = g('plCmt_'+sid);
+
+  if (!lclass && !hw) { showToast('⚠️ L-Class 진도 또는 과제를 먼저 입력해주세요'); return; }
+
+  // 버튼 찾기 (generatePLComment 버튼)
+  const btns = document.querySelectorAll('[onclick*="generatePLComment"]');
+  btns.forEach(b => { b.disabled = true; b.innerHTML = '⏳ 생성 중...'; });
+
+  try {
+    const testInfo = testScore ? `TEST결과: ${testScore}점/${testMax}점 만점` : '';
+    const hwGradeInfo = hwGrade ? `과제이행 등급: ${hwGrade}` : '';
+    const prevComments = curComment ? `\n\n참고할 이전 코멘트:\n"${curComment}"` : '';
+
+    const prompt = `당신은 수학학원 선생님입니다. 학부모님께 보내는 따뜻하고 전문적인 개인지도(PL) 수업 코멘트를 작성해주세요.
+
+학생명: ${stu.name}
+과정: ${course}
+수업날짜: ${date}
+회차: ${sessNum}회차
+L-Class 진도: ${lclass}
+가정학습 과제: ${hw}
+${testRange ? 'TEST 범위: ' + testRange : ''}
+${testInfo}
+${hwGradeInfo}${prevComments}
+
+조건:
+- 학부모님께 보내는 문자 메시지 형식 (안녕하세요~~ 로 시작)
+- 오늘 수업 내용, 학생의 이해도·태도를 구체적으로 언급
+- TEST 점수나 과제 등급이 있으면 자연스럽게 포함
+- 따뜻하고 격려하는 톤, 2~4문장
+- "${stu.name}학생" 또는 "${stu.name}"으로 자연스럽게 호칭
+- 코멘트 내용만 출력 (설명 없이)`;
+
+    const result = await callClaudeAPI(prompt);
+    const cmtEl = document.getElementById('plCmt_'+sid);
+    if (cmtEl) {
+      cmtEl.value = result.trim();
+      cmtEl.dispatchEvent(new Event('input'));
+      window.updatePLPreview(sid);
+    }
+    showToast('✨ AI 코멘트 생성 완료!', 'success');
+  } catch(e) {
+    showToast('⚠️ 생성 실패: ' + e.message);
+  } finally {
+    btns.forEach(b => { b.disabled = false; b.innerHTML = '✨ AI 코멘트 생성'; });
+  }
 };
 
 /* ===========================================================
