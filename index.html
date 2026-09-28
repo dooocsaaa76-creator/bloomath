@@ -3470,133 +3470,162 @@ window.savePLStu=async function(sid){
 };
 
 /* ===========================================================
-   AI 코멘트 자동 생성 - 프롬프트 복사 + Claude.ai 연동
+   AI 코멘트 자동 생성 - Claude.ai 연동
+   샘플 스타일: 안녕하세요^^ / 단원 특징+주의사항 / 키워드 반영 /
+   TEST점수·과제등급 직접 언급 X / 짧고 따뜻하게
 =========================================================== */
 
-// AI 코멘트 결과 붙여넣기 모달 표시
-function showAIModal(prompt, targetId, isUpdate) {
+// 샘플 코멘트 (Few-shot 예시)
+const AI_COMMENT_EXAMPLES = `
+[예시 1]
+진도: 3단원 곱셈과 나눗셈 완료 / 4단원 평면도형의 이동 - 대표유형5번까지 개념+유형설명
+키워드: 과제 잘해옴, 도형 이동 어려워할 수 있음
+→ 안녕하세요^^ 제이가 오늘 숙제를 너무 열심히 잘 해와서 칭찬 많이 해주었습니다. 곱셈과 나눗셈 잘 완료 후, 평면도형의 이동 수업을 나갔고 복잡한 도형의 이동 문제가 나오면 생각하는 부분이 많이 어려울 수 있으니 집에서 숙제할 때 눈으로만 보지말고 그림을 그리면서 잘 고민해보고 다음 시간에 만나면 좋을 것 같습니다^^
+
+[예시 2]
+진도: 5단원 어리가지 그래프
+키워드: 중간평가 TEST 집중 잘 안 됨, 다음 시간에 이어서 풀 예정
+→ 안녕하세요^^ 이번주는 윤이와 5단원 3단계 응용력 기르기까지 공부했습니다. 마지막 6단원 직육면체의 겉넓이와 부피 부분은 다음 시간에 시작해보도록 하겠습니다! 윤이가 마지막 시간에 중간평가 TEST를 진행했는데, 혼자 조용한 곳에서 시험을 보니 집중이 잘 안 되었다고 합니다. 다 못한 부분은 다음 시간에 이어서 풀어보자고 했습니다.^^
+
+[예시 3]
+진도: 6-1기본 6단원 직육면체 겉넓이와 부피 개념+유형풀이 170p까지 / 6-2기본 1단원 분수의 나눗셈 개념+유형풀이
+키워드: 6-1 마지막 단원 마무리, 결석 예정
+→ 안녕하세요^^ 윤이가 오늘 6-1기본의 마지막 6단원을 3단계 응용력 기르기까지 마무리했습니다. 마지막 단원 평가 부분은 과제로 내주었고, 새롭게 6-2과정도 시작했습니다. 6-2의 1단원 분수의 나눗셈 단원 또한 윤이가 어려움 없이 잘 따라와주었습니다! 다음주에 결석이기에 2주 분량의 과제를 내주어, 오늘 과제 양이 윤이가 느끼기에 좀 많게 느껴질 수도 있을 것 같습니다. 어려운 부분은 아니지만 조금씩 나누어서 해보면 좋을 것 같습니다.^^
+`.trim();
+
+// 모달 UI
+function showAIModal(prompt, targetId) {
   navigator.clipboard.writeText(prompt).catch(()=>{});
   document.getElementById('modalTitle').textContent = '✨ AI 코멘트 생성';
   document.getElementById('modalContent').innerHTML = `
-    <div style="margin-bottom:14px;padding:12px 14px;background:#EEF2FF;border-radius:10px;border:1px solid #C7D2FE;">
-      <div style="font-size:13px;font-weight:700;color:#4338CA;margin-bottom:6px;">📋 프롬프트가 클립보드에 복사되었습니다!</div>
-      <div style="font-size:12.5px;color:#6366F1;line-height:1.6;">
-        1. 아래 버튼으로 <b>Claude.ai</b>를 열어주세요<br>
-        2. 대화창에 <b>Ctrl+V</b> 로 붙여넣기<br>
-        3. 생성된 코멘트를 복사해서 아래 칸에 붙여넣기
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <div style="padding:12px 14px;background:#EEF2FF;border-radius:10px;border:1px solid #C7D2FE;">
+        <div style="font-size:13px;font-weight:700;color:#4338CA;margin-bottom:5px;">📋 프롬프트가 복사되었습니다</div>
+        <div style="font-size:12.5px;color:#6366F1;line-height:1.7;">
+          <b>1.</b> 아래 버튼으로 Claude.ai 열기<br>
+          <b>2.</b> 대화창에 <b>Ctrl+V</b> 붙여넣기 후 전송<br>
+          <b>3.</b> 생성된 코멘트만 복사해서 아래에 붙여넣기<br>
+          <b>4.</b> ✅ 코멘트 적용 클릭
+        </div>
       </div>
-    </div>
-    <div style="margin-bottom:10px;">
-      <a href="https://claude.ai" target="_blank"
-        style="display:flex;align-items:center;justify-content:center;gap:8px;background:linear-gradient(135deg,#6366F1,#8B5CF6);color:#fff;padding:10px;border-radius:10px;text-decoration:none;font-weight:700;font-size:14px;">
-        🤖 Claude.ai 열기
+      <a href="https://claude.ai/new" target="_blank"
+        style="display:flex;align-items:center;justify-content:center;gap:8px;background:linear-gradient(135deg,#6366F1,#8B5CF6);color:#fff;padding:11px;border-radius:10px;text-decoration:none;font-weight:700;font-size:14px;">
+        🤖 Claude.ai 새 대화 열기
       </a>
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:5px;">생성된 코멘트 붙여넣기:</div>
+        <textarea id="aiResultInput" placeholder="Claude가 생성한 코멘트를 여기에 붙여넣기..."
+          style="width:100%;min-height:130px;border:1.5px solid var(--border);border-radius:8px;padding:10px;font-family:inherit;font-size:13px;resize:vertical;line-height:1.7;box-sizing:border-box;"></textarea>
+      </div>
+      <details>
+        <summary style="font-size:12px;color:var(--text-secondary);cursor:pointer;user-select:none;">📄 복사된 프롬프트 확인</summary>
+        <pre style="margin-top:6px;padding:10px;background:var(--surface2);border-radius:8px;font-size:11px;line-height:1.6;white-space:pre-wrap;word-break:break-all;max-height:160px;overflow-y:auto;">${escapeHtml(prompt)}</pre>
+      </details>
     </div>
-    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">생성된 코멘트를 붙여넣기 해주세요:</div>
-    <textarea id="aiResultInput" placeholder="여기에 Claude가 생성한 코멘트를 붙여넣기 하세요..."
-      style="width:100%;min-height:120px;border:1.5px solid var(--border);border-radius:8px;padding:10px;font-family:inherit;font-size:13px;resize:vertical;"></textarea>
-    <details style="margin-top:10px;">
-      <summary style="font-size:12px;color:var(--text-secondary);cursor:pointer;">복사된 프롬프트 보기</summary>
-      <pre style="margin-top:6px;padding:10px;background:var(--surface2);border-radius:8px;font-size:11px;line-height:1.6;white-space:pre-wrap;word-break:break-all;max-height:150px;overflow-y:auto;">${escapeHtml(prompt)}</pre>
-    </details>
   `;
   document.getElementById('modalFooter').innerHTML = `
     <button class="btn btn-primary" onclick="window.applyAIComment('${targetId}')">✅ 코멘트 적용</button>
-    <button class="btn btn-outline" onclick="window.closeModal()">취소</button>
+    <button class="btn btn-outline" onclick="window.closeModal()">닫기</button>
   `;
   document.getElementById('modal').style.display = 'block';
+  // 붙여넣기 자동 포커스
+  setTimeout(() => document.getElementById('aiResultInput')?.focus(), 300);
 }
 
 window.applyAIComment = function(targetId) {
   const result = document.getElementById('aiResultInput')?.value?.trim();
   if (!result) { showToast('⚠️ 코멘트를 붙여넣기 해주세요'); return; }
   const el = document.getElementById(targetId);
-  if (el) {
-    el.value = result;
-    el.dispatchEvent(new Event('input'));
+  if (el) { el.value = result; el.dispatchEvent(new Event('input')); }
+  // PL 미리보기 업데이트
+  if (targetId.startsWith('plCmt_')) {
+    const sid = targetId.replace('plCmt_', '');
+    if (window.updatePLPreview) window.updatePLPreview(sid);
   }
   window.closeModal();
   showToast('✅ 코멘트가 적용되었습니다!', 'success');
 };
 
-// BM 코멘트 생성
+// ── BM 코멘트 생성 ──────────────────────────────────────
 window.generateBMComment = function() {
   const date    = document.getElementById('date')?.value || '';
   const prog    = document.getElementById('progress')?.value || '';
   const hw      = document.getElementById('homework')?.value || '';
   const keyword = document.getElementById('bmKeyword')?.value?.trim() || '';
   const stuEl   = document.querySelector('.tab-btn.active');
-  const stuName = stuEl?.textContent?.trim().replace(/✓/g,'').trim() || '';
-  const curCmt  = document.getElementById('comment')?.value?.trim() || '';
+  const stuName = stuEl?.textContent?.trim().replace(/[✓✔]/g,'').trim() || '';
 
   if (!stuName) { showToast('⚠️ 학생을 먼저 선택해주세요'); return; }
-  if (!prog && !hw && !keyword) { showToast('⚠️ 진도, 과제 또는 키워드를 입력해주세요'); return; }
+  if (!prog && !keyword) { showToast('⚠️ 진도 또는 키워드를 입력해주세요'); return; }
 
-  const kwLine   = keyword ? `\n키워드/특이사항: ${keyword}` : '';
-  const prevLine = curCmt  ? `\n참고할 기존 코멘트: "${curCmt}"` : '';
+  const kwLine = keyword ? `키워드/특이사항: ${keyword}` : '';
+  const hwLine = hw ? `가정학습 과제: ${hw}` : '';
 
-  const prompt = `수학학원 선생님이 학부모님께 보내는 따뜻한 수업 코멘트를 작성해주세요.
+  const prompt = `당신은 초등·중등 수학학원(Bloomath) 선생님입니다.
+아래 정보를 바탕으로 학부모님께 보내는 수업 안내 코멘트를 작성해주세요.
 
+─ 수업 정보 ─
 학생명: ${stuName}
 수업날짜: ${date}
-진도: ${prog}
-과제: ${hw}${kwLine}${prevLine}
+오늘 진도: ${prog}
+${hwLine}
+${kwLine}
 
-조건:
-- "안녕하세요^^" 로 시작
-- ${stuName}학생의 오늘 수업 내용과 성취를 구체적으로 언급
-- 키워드가 있으면 반드시 반영
-- 따뜻하고 격려하는 톤, 3~5문장
-- 코멘트 본문만 출력 (제목, 설명 없이)`;
+─ 작성 방식 ─
+• "안녕하세요^^"로 시작
+• 오늘 배운 단원의 핵심 특징이나 어려울 수 있는 점을 한두 문장으로 짚어주기
+• 키워드가 있으면 자연스럽게 반영
+• TEST 점수, 과제이행 등급은 절대 언급하지 말 것 (문자 상단에 따로 표기됨)
+• 총 3~5문장, 너무 과하지 않고 진심 어린 톤
+• 코멘트 본문만 출력 (설명·제목 없이)
+
+─ 참고 스타일 예시 ─
+${AI_COMMENT_EXAMPLES}`;
 
   showAIModal(prompt, 'comment');
 };
 
-// PL 코멘트 생성
+// ── PL 코멘트 생성 ──────────────────────────────────────
 window.generatePLComment = function(sid) {
   const stu = pl_db.students[sid];
   if (!stu) { showToast('⚠️ 학생 정보가 없습니다'); return; }
 
-  const g = id => document.getElementById(id)?.value || '';
-  const course    = g('plCourse_'+sid) || stu.course || '';
-  const date      = g('plDate_'+sid) || '';
-  const sessNum   = g('plSess_'+sid) || '';
-  const lclass    = g('plLC_'+sid) || '';
-  const hw        = g('plHW_'+sid) || '';
-  const testRange = g('plTestRange_'+sid) || '';
-  const testScore = g('plTestScore_'+sid) || '';
-  const testMax   = g('plTestMax_'+sid) || '';
-  const hwGrade   = g('plHwGrade_'+sid) || '';
-  const keyword   = g('plKeyword_'+sid) || '';
-  const curCmt    = g('plCmt_'+sid) || '';
+  const g = id => document.getElementById(id)?.value?.trim() || '';
+  const course  = g('plCourse_'+sid) || stu.course || '';
+  const date    = g('plDate_'+sid) || '';
+  const sessNum = g('plSess_'+sid) || '';
+  const lclass  = g('plLC_'+sid) || '';
+  const hw      = g('plHW_'+sid) || '';
+  const keyword = g('plKeyword_'+sid) || '';
 
-  if (!lclass && !hw && !keyword) { showToast('⚠️ 진도, 과제 또는 키워드를 입력해주세요'); return; }
+  if (!lclass && !keyword) { showToast('⚠️ L-Class 진도 또는 키워드를 입력해주세요'); return; }
 
-  const lines = [
+  const infoLines = [
     `학생명: ${stu.name}`,
-    `과정: ${course}`,
-    date      ? `수업날짜: ${date}` : '',
-    sessNum   ? `회차: ${sessNum}회차` : '',
-    lclass    ? `L-Class 진도: ${lclass}` : '',
-    hw        ? `가정학습 과제: ${hw}` : '',
-    testRange ? `TEST 범위: ${testRange}` : '',
-    testScore ? `TEST 결과: ${testScore}점${testMax ? ' / '+testMax+'점 만점' : ''}` : '',
-    hwGrade   ? `과제이행 등급: ${hwGrade}` : '',
-    keyword   ? `키워드/특이사항: ${keyword}` : '',
-    curCmt    ? `참고할 기존 코멘트: "${curCmt}"` : '',
+    course  ? `수강 과정: ${course}` : '',
+    date    ? `수업날짜: ${date}` : '',
+    sessNum ? `회차: ${sessNum}회차` : '',
+    lclass  ? `오늘 진도: ${lclass}` : '',
+    hw      ? `가정학습 과제: ${hw}` : '',
+    keyword ? `키워드/특이사항: ${keyword}` : '',
   ].filter(Boolean).join('\n');
 
-  const prompt = `수학학원 선생님이 학부모님께 보내는 따뜻한 개인지도(PL) 수업 코멘트를 작성해주세요.
+  const prompt = `당신은 초등·중등 수학 개인지도(PL) 선생님입니다.
+아래 정보를 바탕으로 학부모님께 보내는 수업 안내 코멘트를 작성해주세요.
 
-${lines}
+─ 수업 정보 ─
+${infoLines}
 
-조건:
-- "안녕하세요^^" 로 시작
-- ${stu.name}학생의 오늘 수업 내용, 이해도, 태도를 구체적으로 언급
-- TEST 점수·과제 등급이 있으면 자연스럽게 포함
-- 키워드가 있으면 반드시 반영
-- 따뜻하고 격려하는 톤, 3~5문장
-- 코멘트 본문만 출력 (제목, 설명 없이)`;
+─ 작성 방식 ─
+• "안녕하세요^^"로 시작
+• 오늘 배운 단원의 핵심 내용이나 어려울 수 있는 점을 짚어주기
+• 키워드가 있으면 자연스럽게 반영
+• TEST 점수, 과제이행 등급은 절대 언급하지 말 것 (문자 상단에 따로 표기됨)
+• 총 3~5문장, 너무 과하지 않고 진심 어린 톤
+• 코멘트 본문만 출력 (설명·제목 없이)
+
+─ 참고 스타일 예시 ─
+${AI_COMMENT_EXAMPLES}`;
 
   showAIModal(prompt, 'plCmt_'+sid);
 };
