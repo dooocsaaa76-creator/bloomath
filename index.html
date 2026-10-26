@@ -2227,9 +2227,12 @@ function renderPLTerms() {
   if (term.venue === '영재관') {
     // 영재관: 초등PL(월~금 1~2부)과 중등PL&주말 분리
     const isSecondary = cls =>
-      ['토','일'].includes(cls.day) ||
-      (cls.day === '수' && (cls.name === '수A' || cls.name === '수B' || cls.time.startsWith('5'))) ||
-      (cls.day === '금' && cls.time.startsWith('7'));
+      cls.plType === 'secondary' ||
+      (cls.plType !== 'elementary' && (
+        ['토','일'].includes(cls.day) ||
+        (cls.day === '수' && (cls.name === '수A' || cls.name === '수B' || cls.time.startsWith('5'))) ||
+        (cls.day === '금' && cls.time.startsWith('7'))
+      ));
     const elementaryCls = sortClassesByTime(term.classes.filter(c => !isSecondary(c)));
     const secondaryCls  = sortClassesByTime(term.classes.filter(c =>  isSecondary(c)));
     const elemTable = elementaryCls.length > 0 ? buildPLRosterTable(termId, term, elementaryCls, '초등PL 학생명단') : '';
@@ -2250,6 +2253,7 @@ function renderPLTerms() {
       </div>
     </div>
     <div class="toolbar" style="flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:20px;">
+      ${term.venue === '영재관' ? `<label>구분</label><select id="plNewClassType" style="width:80px;"><option value="elementary">초등PL</option><option value="secondary">중등PL</option></select>` : ''}
       <label>반 이름</label><input type="text" id="plNewClassName" placeholder="예: 월1부A" style="width:100px;">
       <label>요일</label>
       <select id="plNewClassDay" style="width:70px;">${['월','화','수','목','금','토','일'].map(d=>`<option>${d}</option>`).join('')}</select>
@@ -2447,8 +2451,12 @@ window.addPLClass=async function(termId){
   const name=document.getElementById('plNewClassName').value.trim();
   const day=document.getElementById('plNewClassDay').value;
   const time=document.getElementById('plNewClassTime').value.trim();
+  const typeEl=document.getElementById('plNewClassType');
+  const plType=typeEl?typeEl.value:'';
   if(!name){showToast('⚠️ 반 이름을 입력해주세요');return;}
-  getPLTerm(termId).classes.push({id:uid(),name,day,time,teacher:''});
+  const newCls={id:uid(),name,day,time,teacher:''};
+  if(plType) newCls.plType=plType; // 'elementary' or 'secondary'
+  getPLTerm(termId).classes.push(newCls);
   await savePLDB(); document.getElementById('plNewClassName').value=''; document.getElementById('plNewClassTime').value='';
   view={page:'pl-terms',plTermId:termId}; render(); showToast(`✅ '${name}' 반 추가`,'success');
 };
