@@ -1893,7 +1893,7 @@ window.editBMKakaoLink = function() {
     <button class="btn btn-primary" onclick="window.saveBMKakaoLink()">저장</button>
     <button class="btn btn-outline" onclick="window.closeModal()">취소</button>
   `;
-  openModal();
+  document.getElementById('modal').style.display='block';
   setTimeout(()=>document.getElementById('bmKakaoLinkInput')?.focus(),100);
 };
 
@@ -3400,7 +3400,7 @@ window.editPLKakaoLink = function() {
     <button class="btn btn-primary" onclick="window.savePLKakaoLink('${sid}')">저장</button>
     <button class="btn btn-outline" onclick="window.closeModal()">취소</button>
   `;
-  openModal();
+  document.getElementById('modal').style.display='block';
   setTimeout(()=>document.getElementById('plKakaoLinkInput')?.focus(),100);
 };
 
