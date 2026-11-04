@@ -3027,7 +3027,8 @@ window.selectPLStudent=function(sid){
   }
   const classId=view.plClassId; const data=getPLClassData(classId);
   renderPLStudentTabs();
-  const session=data.sessions?.find(s=>s.studentId===sid)||{};
+  const sessionsArr=Array.isArray(data.sessions)?data.sessions:[];
+  const session=sessionsArr.find(s=>s.studentId===sid)||{};
 
   document.getElementById('plInputPanel').innerHTML=`
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
