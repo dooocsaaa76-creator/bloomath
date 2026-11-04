@@ -2645,6 +2645,7 @@ function renderPLClassPage() {
             <div class="actions" style="margin-top:12px;">
               <button class="btn btn-pl" id="plCopyBtn" onclick="window.copyPLMsg()">📋 복사</button>
               <button class="btn btn-success" id="plSentBtn" onclick="window.markPLSent()">✅ 발송목록에 저장</button>
+              <button class="btn" id="plKakaoBtn" onclick="window.sendKakaoMsg()" style="background:#FAE100;color:#3A1D1D;font-weight:700;border:none;" title="카카오 채팅방 열기 + 메시지 복사">💬 카카오 발송</button>
             </div>
           </div>
         </div>
@@ -2681,6 +2682,7 @@ function renderPLClassPage() {
           <div><label>수업기간</label><input type="text" id="plAddPeriod" style="width:100%;"></div>
           <div><label>종료월</label><input type="text" id="plAddEndMonth" style="width:100%;"></div>
           <div><label>특이사항</label><textarea id="plAddMemo" style="width:100%;min-height:60px;"></textarea></div>
+          <div><label>💬 카카오 채팅 URL</label><input type="text" id="plAddKakao" placeholder="https://business.kakao.com/space/.../chats/..." style="width:100%;font-size:12px;"></div>
         </div>
         <div style="display:flex;gap:8px;margin-top:20px;">
           <button class="btn btn-pl" onclick="window.confirmPLAddStudent()" style="flex:1;">추가</button>
@@ -2785,7 +2787,9 @@ window.confirmPLAddStudent=async function(){
       course:document.getElementById('plAddCourse').value.trim(),
       period:document.getElementById('plAddPeriod').value.trim(),
       endMonth:document.getElementById('plAddEndMonth').value.trim(),
-      memo:document.getElementById('plAddMemo').value.trim(),sentLog:{},history:[]};
+      memo:document.getElementById('plAddMemo').value.trim(),
+      kakaoUrl:document.getElementById('plAddKakao')?.value.trim()||'',
+      sentLog:{},history:[]};
     showToast(`✅ '${name}' 추가 완료`,'success');
   }
   data.students.push({id:sid,name});
@@ -3057,6 +3061,24 @@ window.copyPLMsg=function(sid){
   const target = sid || plView.studentId;
   if(!target){showToast('⚠️ 학생을 먼저 선택해주세요');return;}
   navigator.clipboard.writeText(getPLCurrentMsg(target)).then(()=>showToast('✅ 복사되었습니다!','success'));
+};
+
+window.sendKakaoMsg=function(){
+  const sid = plView.studentId;
+  if(!sid){showToast('⚠️ 학생을 먼저 선택해주세요');return;}
+  const stu = pl_db.students[sid];
+  if(!stu?.kakaoUrl){
+    showToast('⚠️ 카카오 채팅 URL이 없습니다. 학생 정보 수정에서 URL을 등록해주세요.');
+    return;
+  }
+  const msg = getPLCurrentMsg(sid);
+  navigator.clipboard.writeText(msg).then(()=>{
+    window.open(stu.kakaoUrl, '_blank');
+    showToast('✅ 메시지 복사 완료! 카카오 채팅창에서 붙여넣기(Ctrl+V) 후 전송하세요.', 'success');
+  }).catch(()=>{
+    window.open(stu.kakaoUrl, '_blank');
+    showToast('카카오 채팅창이 열렸습니다. 직접 붙여넣기 해주세요.', 'success');
+  });
 };
 
 window.savePLSess=async function(sid){
@@ -3413,6 +3435,13 @@ window.editPLStu=function(sid){
       <div><label>수업기간</label><input type="text" id="ePrd" value="${escapeHtml(stu.period||'')}" style="width:100%;"></div>
       <div><label>종료월</label><input type="text" id="eEnd" value="${escapeHtml(stu.endMonth||'')}" style="width:100%;"></div>
       <div><label>특이사항</label><textarea id="eMemo" style="width:100%;min-height:60px;">${escapeHtml(stu.memo||'')}</textarea></div>
+      <div>
+        <label style="display:flex;align-items:center;gap:6px;">
+          💬 카카오 채팅 URL
+          <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">(학부모 1:1 채팅방 주소)</span>
+        </label>
+        <input type="text" id="eKakao" value="${escapeHtml(stu.kakaoUrl||'')}" placeholder="https://business.kakao.com/space/.../chats/..." style="width:100%;font-size:12px;">
+      </div>
       <!-- 수강반 관리 -->
       <div style="border-top:1px solid var(--border);padding-top:12px;">
         <label style="font-weight:700;font-size:13px;display:block;margin-bottom:8px;">📅 수강 중인 반</label>
@@ -3474,6 +3503,7 @@ window.savePLStu=async function(sid){
   stu.period=document.getElementById('ePrd').value.trim();
   stu.endMonth=document.getElementById('eEnd').value.trim();
   stu.memo=document.getElementById('eMemo').value.trim();
+  stu.kakaoUrl=document.getElementById('eKakao').value.trim();
   await savePLDB(); window.closeModal(); render(); showToast('✅ 저장되었습니다','success');
 };
 
