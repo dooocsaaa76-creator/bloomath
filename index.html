@@ -3012,7 +3012,19 @@ window.removePLStudent=function(sid){
   });
 };
 window.selectPLStudent=function(sid){
-  plView.studentId=sid; const stu=pl_db.students[sid]; if(!stu)return;
+  plView.studentId=sid;
+  let stu=pl_db.students[sid];
+  // students 맵에 없으면 classes에서 이름 찾아 임시 객체 사용
+  if(!stu){
+    const classId=view.plClassId;
+    const data=getPLClassData(classId);
+    const found=data.students.find(s=>s.id===sid);
+    if(!found)return;
+    // students 맵에 등록
+    pl_db.students[sid]={name:found.name,school:'',grade:'',history:[],sentLog:{}};
+    stu=pl_db.students[sid];
+    savePLDB();
+  }
   const classId=view.plClassId; const data=getPLClassData(classId);
   renderPLStudentTabs();
   const session=data.sessions?.find(s=>s.studentId===sid)||{};
