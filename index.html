@@ -1322,6 +1322,7 @@ function renderClassPage() {
             <button class="btn btn-primary" onclick="window.copySingle()">📋 복사</button>
             <button class="btn btn-success" onclick="window.saveCurrentMessage()">💾 발송목록에 저장</button>
             <button class="btn btn-outline btn-sm" onclick="window.previewAll()">전체보기</button>
+            <button class="btn" onclick="window.sendKakaoBM()" style="background:#FAE100;color:#3A1D1D;font-weight:700;border:none;" title="카카오 채팅방 열기 + 메시지 복사">💬 카카오 발송</button>
           </div>
         </div>
       </div>
@@ -1550,6 +1551,7 @@ window.editRosterStudent = function(idx) {
     </td>
     <td><input type="text" id="edit-class1" value="${escapeHtml(s.class1||'')}" placeholder="수업1" style="width:100%;border:1.5px solid var(--primary);border-radius:6px;padding:6px 8px;font-size:13px;font-family:inherit;"></td>
     <td><input type="text" id="edit-class2" value="${escapeHtml(s.class2||'')}" placeholder="수업2" style="width:100%;border:1.5px solid var(--primary);border-radius:6px;padding:6px 8px;font-size:13px;font-family:inherit;"></td>
+    <td><input type="text" id="edit-kakao" value="${escapeHtml(s.kakaoUrl||'')}" placeholder="카카오 채팅 URL" style="width:100%;border:1.5px solid var(--primary);border-radius:6px;padding:6px 8px;font-size:12px;font-family:inherit;"></td>
     <td style="white-space:nowrap;text-align:right;">
       <button class="btn btn-primary btn-sm" onclick="window.saveRosterEdit(${idx})">저장</button>
       <button class="btn btn-outline btn-sm" onclick="document.getElementById('roster-edit-row').remove()">취소</button>
@@ -1564,10 +1566,11 @@ window.editRosterStudent = function(idx) {
 window.saveRosterEdit = async function(idx) {
   const c = getClass(view.quarterId, view.classId);
   const s = c.students[idx];
-  s.school = document.getElementById('edit-school').value.trim();
-  s.grade  = document.getElementById('edit-grade').value;
-  s.class1 = document.getElementById('edit-class1').value.trim();
-  s.class2 = document.getElementById('edit-class2').value.trim();
+  s.school    = document.getElementById('edit-school').value.trim();
+  s.grade     = document.getElementById('edit-grade').value;
+  s.class1    = document.getElementById('edit-class1').value.trim();
+  s.class2    = document.getElementById('edit-class2').value.trim();
+  s.kakaoUrl  = document.getElementById('edit-kakao').value.trim();
   await saveDB();
   renderRosterList();
   loadCurrentStudentFields();
@@ -1639,6 +1642,24 @@ window.copySingle = function() {
   const s = c.students[currentStudentIdx];
   const msg = buildMessage(c.date, c.progress, c.homework, s.name, s.comment);
   navigator.clipboard.writeText(msg).then(() => showToast('✅ 복사되었습니다!', 'success'));
+};
+
+window.sendKakaoBM = function() {
+  const c = getClass(view.quarterId, view.classId);
+  if (c.students.length === 0) { showToast('⚠️ 학생 명단을 먼저 추가해주세요'); return; }
+  const s = c.students[currentStudentIdx];
+  if (!s.kakaoUrl) {
+    showToast('⚠️ 카카오 채팅 URL이 없습니다. 명단에서 학생 수정 버튼을 눌러 URL을 등록해주세요.');
+    return;
+  }
+  const msg = buildMessage(c.date, c.progress, c.homework, s.name, s.comment);
+  navigator.clipboard.writeText(msg).then(() => {
+    window.open(s.kakaoUrl, '_blank');
+    showToast('✅ 메시지 복사 완료! 카카오 채팅창에서 Ctrl+V 후 전송하세요.', 'success');
+  }).catch(() => {
+    window.open(s.kakaoUrl, '_blank');
+    showToast('카카오 채팅창이 열렸습니다. 직접 붙여넣기 해주세요.', 'success');
+  });
 };
 
 window.saveCurrentMessage = async function() {
