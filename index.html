@@ -1365,15 +1365,15 @@ function renderClassPage() {
           <button class="btn btn-outline btn-sm" onclick="window.resetCommonFields()">↺ 초기화</button>
         </div>
         <div class="card-body">
-          <div class="field"><label>날짜</label><input type="text" id="date" placeholder="예: 6/16(화)"></div>
+          <div class="field" style="margin-bottom:6px;"><label style="font-size:12px;">날짜</label><input type="text" id="date" placeholder="예: 6/16(화)" style="padding:5px 8px;font-size:12.5px;"></div>
           <div id="textbookProgressWrap"></div>
-          <div class="field" style="margin-top:14px;">
-            <label style="font-size:13px;font-weight:700;color:#1E293B;display:flex;align-items:center;gap:6px;">📝 일일TEST</label>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px;">
-              <div><label style="font-size:11px;color:var(--text-secondary);">과정</label><input type="text" id="testCourse" placeholder="예: CABLE 4-1" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13px;font-family:inherit;"></div>
-              <div><label style="font-size:11px;color:var(--text-secondary);">단원</label><input type="text" id="testUnit" placeholder="예: 6단원 규칙 찾기" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13px;font-family:inherit;"></div>
-              <div><label style="font-size:11px;color:var(--text-secondary);">학생 점수</label><input type="number" id="testScore" placeholder="점수" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13px;font-family:inherit;"></div>
-              <div><label style="font-size:11px;color:var(--text-secondary);">만점</label><input type="number" id="testMax" placeholder="만점" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13px;font-family:inherit;"></div>
+          <div style="margin-top:6px;">
+            <div style="font-size:12px;font-weight:700;color:var(--primary);margin-bottom:3px;">📝 일일TEST</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 80px 80px;gap:5px;align-items:end;">
+              <div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:2px;">과정</label><input type="text" id="testCourse" placeholder="CABLE 4-1" style="width:100%;border:1.5px solid var(--border);border-radius:7px;padding:5px 8px;font-size:12.5px;font-family:inherit;box-sizing:border-box;"></div>
+              <div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:2px;">단원</label><input type="text" id="testUnit" placeholder="6단원 규칙 찾기" style="width:100%;border:1.5px solid var(--border);border-radius:7px;padding:5px 8px;font-size:12.5px;font-family:inherit;box-sizing:border-box;"></div>
+              <div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:2px;">점수</label><input type="number" id="testScore" placeholder="점수" style="width:100%;border:1.5px solid var(--border);border-radius:7px;padding:5px 8px;font-size:12.5px;font-family:inherit;box-sizing:border-box;"></div>
+              <div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:2px;">만점</label><input type="number" id="testMax" placeholder="만점" style="width:100%;border:1.5px solid var(--border);border-radius:7px;padding:5px 8px;font-size:12.5px;font-family:inherit;box-sizing:border-box;"></div>
             </div>
           </div>
         </div>
@@ -1442,20 +1442,32 @@ function renderTextbookProgressWrap(c) {
   const tbs = (c.textbooks && c.textbooks.length > 0) ? c.textbooks : [''];
   const tbProgress = c.tbProgress || {};
   const tbHomework = c.tbHomework || {};
-  wrap.innerHTML = tbs.map((tb, i) => `
-    <div style="margin-bottom:10px;">
-      <div style="font-size:12px;font-weight:700;color:var(--primary);margin-bottom:4px;">📗 ${escapeHtml(tb||('교재 '+(i+1)))}</div>
-      <div class="field" style="margin-bottom:4px;">
-        <label style="font-size:11.5px;color:var(--text-secondary);">진도</label>
-        <textarea id="tbProgress_${i}" placeholder="진도 내용 입력" style="min-height:54px;" oninput="onCommonInput()">${escapeHtml(tbProgress[i]||'')}</textarea>
-      </div>
-      <div class="field">
-        <label style="font-size:11.5px;color:var(--text-secondary);">과제</label>
-        <textarea id="tbHomework_${i}" placeholder="과제 내용 입력" style="min-height:54px;" oninput="onCommonInput()">${escapeHtml(tbHomework[i]||'')}</textarea>
-      </div>
+  const inputStyle = 'width:100%;border:1.5px solid var(--border);border-radius:7px;padding:5px 8px;font-size:12.5px;font-family:inherit;resize:vertical;min-height:40px;box-sizing:border-box;';
+  const labelStyle = 'font-size:11px;color:var(--text-secondary);margin-bottom:2px;display:block;';
+  // 진도 행
+  let html = `<div style="margin-bottom:6px;">
+    <div style="font-size:12px;font-weight:700;color:var(--primary);margin-bottom:3px;">■ 진도</div>
+    <div style="display:grid;grid-template-columns:repeat(${tbs.length},1fr);gap:6px;">
+      ${tbs.map((tb,i)=>`<div>
+        <label style="${labelStyle}">📗 ${escapeHtml(tb||('교재 '+(i+1)))}</label>
+        <textarea id="tbProgress_${i}" placeholder="진도" style="${inputStyle}" oninput="window._onCommonInput()">${escapeHtml(tbProgress[i]||'')}</textarea>
+      </div>`).join('')}
     </div>
-  `).join('');
+  </div>`;
+  // 과제 행
+  html += `<div style="margin-bottom:4px;">
+    <div style="font-size:12px;font-weight:700;color:var(--primary);margin-bottom:3px;">■ 과제</div>
+    <div style="display:grid;grid-template-columns:repeat(${tbs.length},1fr);gap:6px;">
+      ${tbs.map((tb,i)=>`<div>
+        <label style="${labelStyle}">📗 ${escapeHtml(tb||('교재 '+(i+1)))}</label>
+        <textarea id="tbHomework_${i}" placeholder="과제" style="${inputStyle}" oninput="window._onCommonInput()">${escapeHtml(tbHomework[i]||'')}</textarea>
+      </div>`).join('')}
+    </div>
+  </div>`;
+  wrap.innerHTML = html;
 }
+// oninput에서 전역 접근 가능하도록 window에 등록
+window._onCommonInput = function() { onCommonInput(); };
 
 function initClassPage() {
   const c = getClass(view.quarterId, view.classId);
@@ -1472,11 +1484,11 @@ function initClassPage() {
   document.getElementById('testScore').value = testData.score || '';
   document.getElementById('testMax').value = testData.max || '';
 
-  document.getElementById('date').oninput = onCommonInput;
-  document.getElementById('testCourse').oninput = onCommonInput;
-  document.getElementById('testUnit').oninput = onCommonInput;
-  document.getElementById('testScore').oninput = onCommonInput;
-  document.getElementById('testMax').oninput = onCommonInput;
+  document.getElementById('date').oninput = window._onCommonInput;
+  document.getElementById('testCourse').oninput = window._onCommonInput;
+  document.getElementById('testUnit').oninput = window._onCommonInput;
+  document.getElementById('testScore').oninput = window._onCommonInput;
+  document.getElementById('testMax').oninput = window._onCommonInput;
   document.getElementById('comment').oninput = () => { onStudentInput(); countChars(); };
 
   if (currentStudentIdx >= c.students.length) currentStudentIdx = 0;
@@ -1780,12 +1792,13 @@ function buildMessage(date, progress, homework, studentName, comment, classObj) 
   if (classObj && classObj.testData) {
     const t = classObj.testData;
     if (t.course || t.unit || t.score) {
-      msg += `일일TEST\n`;
-      if (t.course) msg += `▶ ${t.course}`;
-      if (t.unit) msg += ` / ${t.unit}`;
-      if (t.score) msg += ` / ${t.score}점`;
-      if (t.max) msg += ` / ${t.max}점 만점`;
-      msg += '\n\n';
+      msg += `■ 일일TEST\n`;
+      const parts = [];
+      if (t.course) parts.push(t.course);
+      if (t.unit) parts.push(t.unit);
+      if (t.score) parts.push(`${t.score}점`);
+      if (t.max) parts.push(`${t.max}점 만점`);
+      msg += parts.join(' / ') + '\n\n';
     }
   }
 
