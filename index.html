@@ -1370,7 +1370,7 @@ function renderClassPage() {
           <div style="margin-top:6px;">
             <div style="font-size:12px;font-weight:700;color:var(--primary);margin-bottom:3px;">📝 일일TEST</div>
             <div style="display:grid;grid-template-columns:1fr 1fr 80px 80px;gap:5px;align-items:end;">
-              <div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:2px;">과정</label><input type="text" id="testCourse" placeholder="CABLE 4-1" style="width:100%;border:1.5px solid var(--border);border-radius:7px;padding:5px 8px;font-size:12.5px;font-family:inherit;box-sizing:border-box;"></div>
+              <div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:2px;">과정</label><input type="text" id="testCourse" placeholder="초4-1" style="width:100%;border:1.5px solid var(--border);border-radius:7px;padding:5px 8px;font-size:12.5px;font-family:inherit;box-sizing:border-box;"></div>
               <div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:2px;">단원</label><input type="text" id="testUnit" placeholder="6단원 규칙 찾기" style="width:100%;border:1.5px solid var(--border);border-radius:7px;padding:5px 8px;font-size:12.5px;font-family:inherit;box-sizing:border-box;"></div>
               <div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:2px;">점수</label><input type="number" id="testScore" placeholder="점수" style="width:100%;border:1.5px solid var(--border);border-radius:7px;padding:5px 8px;font-size:12.5px;font-family:inherit;box-sizing:border-box;"></div>
               <div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:2px;">만점</label><input type="number" id="testMax" placeholder="만점" style="width:100%;border:1.5px solid var(--border);border-radius:7px;padding:5px 8px;font-size:12.5px;font-family:inherit;box-sizing:border-box;"></div>
@@ -1422,11 +1422,11 @@ function renderClassPage() {
         <div class="card-header" style="cursor:pointer;" onclick="window.toggleMsgList()">
           <div style="display:flex;align-items:center;gap:10px;">
             <div class="card-icon icon-students">👥</div>
-            <div><div class="card-title">전체 학생 문자 목록</div><div class="card-subtitle">저장된 발송 내역 (날짜 · 학생이름 · 전체)</div></div>
+            <div><div class="card-title">학생 문자 목록</div><div class="card-subtitle" id="msgListSubtitle">저장된 발송 내역</div></div>
           </div>
-          <span id="msgListToggleIcon" style="font-size:18px;color:var(--text-secondary);margin-left:auto;">▼</span>
+          <span id="msgListToggleIcon" style="font-size:18px;color:var(--text-secondary);margin-left:auto;">▲</span>
         </div>
-        <div id="msgListBody" style="display:none;">
+        <div id="msgListBody" style="">
           <div class="card-body">
             <div id="messageListWrap"></div>
           </div>
@@ -1444,10 +1444,14 @@ function renderTextbookProgressWrap(c) {
   const tbHomework = c.tbHomework || {};
   const inputStyle = 'width:100%;border:1.5px solid var(--border);border-radius:7px;padding:5px 8px;font-size:12.5px;font-family:inherit;resize:vertical;min-height:40px;box-sizing:border-box;';
   const labelStyle = 'font-size:11px;color:var(--text-secondary);margin-bottom:2px;display:block;';
+  // 교재 2개 이상이면 첫 번째가 2/3, 나머지가 1/3씩
+  const colTemplate = tbs.length >= 2
+    ? `2fr ${tbs.slice(1).map(()=>'1fr').join(' ')}`
+    : '1fr';
   // 진도 행
   let html = `<div style="margin-bottom:6px;">
     <div style="font-size:12px;font-weight:700;color:var(--primary);margin-bottom:3px;">■ 진도</div>
-    <div style="display:grid;grid-template-columns:repeat(${tbs.length},1fr);gap:6px;">
+    <div style="display:grid;grid-template-columns:${colTemplate};gap:6px;">
       ${tbs.map((tb,i)=>`<div>
         <label style="${labelStyle}">📗 ${escapeHtml(tb||('교재 '+(i+1)))}</label>
         <textarea id="tbProgress_${i}" placeholder="진도" style="${inputStyle}" oninput="window._onCommonInput()">${escapeHtml(tbProgress[i]||'')}</textarea>
@@ -1457,7 +1461,7 @@ function renderTextbookProgressWrap(c) {
   // 과제 행
   html += `<div style="margin-bottom:4px;">
     <div style="font-size:12px;font-weight:700;color:var(--primary);margin-bottom:3px;">■ 과제</div>
-    <div style="display:grid;grid-template-columns:repeat(${tbs.length},1fr);gap:6px;">
+    <div style="display:grid;grid-template-columns:${colTemplate};gap:6px;">
       ${tbs.map((tb,i)=>`<div>
         <label style="${labelStyle}">📗 ${escapeHtml(tb||('교재 '+(i+1)))}</label>
         <textarea id="tbHomework_${i}" placeholder="과제" style="${inputStyle}" oninput="window._onCommonInput()">${escapeHtml(tbHomework[i]||'')}</textarea>
@@ -1592,6 +1596,7 @@ window.switchStudent = function(idx) {
   renderTabs();
   loadCurrentStudentFields();
   generateSingle();
+  renderMessageList();
 };
 
 function loadCurrentStudentFields() {
@@ -1771,21 +1776,19 @@ function buildMessage(date, progress, homework, studentName, comment, classObj) 
     const tbs = classObj.textbooks;
     const tbP = classObj.tbProgress || {};
     const tbH = classObj.tbHomework || {};
-    const hasAny = tbs.some((_,i) => tbP[i] || tbH[i]);
-    if (hasAny) {
-      tbs.forEach((tb, i) => {
-        const p = tbP[i]; const h = tbH[i];
-        if (!p && !h) return;
-        msg += `【${tb}】\n`;
-        if (p) msg += `■ 진도\n${p}\n`;
-        if (h) msg += `■ 과제\n${h}\n`;
-        msg += '\n';
-      });
+    // 진도 블록
+    const progressLines = tbs.map((tb,i) => tbP[i] ? `[${tb}] ${tbP[i]}` : '').filter(Boolean);
+    if (progressLines.length > 0) {
+      msg += `■ 진도\n${progressLines.join('\n')}\n\n`;
+    }
+    // 과제 블록
+    const homeworkLines = tbs.map((tb,i) => tbH[i] ? `[${tb}] ${tbH[i]}` : '').filter(Boolean);
+    if (homeworkLines.length > 0) {
+      msg += `■ 과제\n${homeworkLines.join('\n')}\n\n`;
     }
   } else {
-    if (progress) msg += `■ 진도\n${progress}\n`;
-    if (homework) msg += `■ 과제\n${homework}\n`;
-    if (progress || homework) msg += '\n';
+    if (progress) msg += `■ 진도\n${progress}\n\n`;
+    if (homework) msg += `■ 과제\n${homework}\n\n`;
   }
 
   // 일일TEST
@@ -1881,19 +1884,26 @@ function renderMessageList() {
   const c = getClass(view.quarterId, view.classId);
   const wrap = document.getElementById('messageListWrap');
   if (!wrap) return;
-  const msgs = (c.messages||[]).slice().sort((a,b) => b.createdAt - a.createdAt);
+  // 현재 선택된 학생 이름
+  const curStudent = c.students[currentStudentIdx];
+  const curName = curStudent ? curStudent.name : null;
+  // 현재 학생 메시지만 필터
+  const allMsgs = (c.messages||[]).slice().sort((a,b) => b.createdAt - a.createdAt);
+  const msgs = curName ? allMsgs.filter(m => m.studentName === curName) : allMsgs;
+  // 부제목 업데이트
+  const sub = document.getElementById('msgListSubtitle');
+  if (sub) sub.textContent = curName ? `${curName} 발송 내역` : '저장된 발송 내역';
   if (msgs.length === 0) {
-    wrap.innerHTML = `<div class="empty-state" style="padding:30px 10px;"><div class="big-emoji">📭</div>'발송목록에 저장' 버튼을 눌러 문자를 기록하세요</div>`;
+    wrap.innerHTML = `<div class="empty-state" style="padding:30px 10px;"><div class="big-emoji">📭</div>${curName ? curName+'의 발송 내역이 없습니다' : "'발송목록에 저장' 버튼을 눌러 문자를 기록하세요"}</div>`;
     return;
   }
   wrap.innerHTML = `
     <table class="msg-table">
-      <thead><tr><th class="col-date">날짜</th><th class="col-name">학생이름</th><th>전체</th><th></th></tr></thead>
+      <thead><tr><th class="col-date">날짜</th><th>전체</th><th></th></tr></thead>
       <tbody>
         ${msgs.map(m => `
           <tr class="clickable" onclick="window.viewSavedMessage('${m.id}')">
             <td class="col-date">${escapeHtml(m.date)}</td>
-            <td class="col-name">${escapeHtml(m.studentName)}</td>
             <td class="col-full">${escapeHtml(m.text.replace(/\n/g,' '))}</td>
             <td style="text-align:right;width:1%;white-space:nowrap;">
               <button class="btn btn-outline btn-sm" onclick="event.stopPropagation();window.copySavedMessage('${m.id}')">복사</button>
