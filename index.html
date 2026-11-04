@@ -1412,8 +1412,8 @@ function renderClassPage() {
         <div class="card-body">
           <div class="result-box" id="singleResult"><span class="result-placeholder">왼쪽에서 내용을 입력하면 자동으로 문자가 생성됩니다.</span></div>
           <div class="actions">
-            <button class="btn btn-success" onclick="window.saveCurrentMessage()">💾 발송목록에 저장</button>
-            <button class="btn" onclick="window.sendKakaoBM()" style="background:#FAE100;color:#3A1D1D;font-weight:700;border:none;" title="카카오 채팅방 열기 + 메시지 복사">💬 카카오 발송</button>
+            <button class="btn" onclick="window.sendKakaoBM()" style="background:#FAE100;color:#3A1D1D;font-weight:700;border:none;" title="카카오 채팅방 열기 + 메시지 복사 + 발송목록 자동저장">💬 카카오 발송</button>
+            <button class="btn btn-outline btn-sm" id="bmKakaoLinkBtn" onclick="window.editBMKakaoLink()" style="font-size:12px;" title="카카오 채널 주소 등록/수정">🔗 <span id="bmKakaoLinkStatus">채널링크 확인중</span></button>
           </div>
         </div>
       </div>
@@ -1422,7 +1422,7 @@ function renderClassPage() {
         <div class="card-header" style="cursor:pointer;" onclick="window.toggleMsgList()">
           <div style="display:flex;align-items:center;gap:10px;">
             <div class="card-icon icon-students">👥</div>
-            <div><div class="card-title">학생 문자 목록</div><div class="card-subtitle" id="msgListSubtitle">저장된 발송 내역</div></div>
+            <div><div class="card-title" id="msgListTitle">학생 문자 목록</div><div class="card-subtitle" id="msgListSubtitle">저장된 발송 내역</div></div>
           </div>
           <span id="msgListToggleIcon" style="font-size:18px;color:var(--text-secondary);margin-left:auto;">▲</span>
         </div>
@@ -1501,6 +1501,7 @@ function initClassPage() {
   loadCurrentStudentFields();
   generateSingle();
   renderMessageList();
+  setTimeout(() => window.updateBMKakaoLinkStatus(), 50);
 }
 
 window.toggleMsgList = function() {
@@ -1597,6 +1598,7 @@ window.switchStudent = function(idx) {
   loadCurrentStudentFields();
   generateSingle();
   renderMessageList();
+  window.updateBMKakaoLinkStatus();
 };
 
 function loadCurrentStudentFields() {
@@ -1852,17 +1854,69 @@ window.sendKakaoBM = function() {
   if (c.students.length === 0) { showToast('⚠️ 학생 명단을 먼저 추가해주세요'); return; }
   const s = c.students[currentStudentIdx];
   if (!s.kakaoUrl) {
-    showToast('⚠️ 카카오 채팅 URL이 없습니다. 명단에서 학생 수정 버튼을 눌러 URL을 등록해주세요.');
+    showToast('⚠️ 채널링크가 없습니다. 🔗 채널링크 미입력 버튼을 눌러 URL을 등록해주세요.');
     return;
   }
   const msg = buildMessage(c.date, c.progress, c.homework, s.name, s.comment, c);
+  // 발송목록 자동저장
+  (async () => {
+    if (!c.date || !s.name) return;
+    if (!c.messages) c.messages = [];
+    const existing = c.messages.find(m => m.date === c.date && m.studentId === s.id);
+    const entry = { id: existing?existing.id:uid(), date:c.date, progress:c.progress, homework:c.homework, studentId:s.id, studentName:s.name, comment:s.comment, text:msg, createdAt:existing?existing.createdAt:Date.now() };
+    if (existing) Object.assign(existing, entry); else c.messages.push(entry);
+    await saveDB();
+    renderMessageList();
+  })();
   navigator.clipboard.writeText(msg).then(() => {
     window.open(s.kakaoUrl, '_blank');
-    showToast('✅ 메시지 복사 완료! 카카오 채팅창에서 Ctrl+V 후 전송하세요.', 'success');
+    showToast('✅ 메시지 복사 + 발송목록 저장! 카카오에서 Ctrl+V 후 전송하세요.', 'success');
   }).catch(() => {
     window.open(s.kakaoUrl, '_blank');
     showToast('카카오 채팅창이 열렸습니다. 직접 붙여넣기 해주세요.', 'success');
   });
+};
+
+window.editBMKakaoLink = function() {
+  const c = getClass(view.quarterId, view.classId);
+  if (!c || c.students.length === 0) { showToast('⚠️ 학생을 먼저 선택해주세요'); return; }
+  const s = c.students[currentStudentIdx];
+  if (!s) return;
+  document.getElementById('modalTitle').textContent = `💬 ${s.name} 카카오 채널 링크`;
+  document.getElementById('modalContent').innerHTML = `
+    <div style="margin-bottom:8px;font-size:13px;color:var(--text-secondary);">카카오 비즈니스 채널 채팅 URL을 입력하세요</div>
+    <input type="text" id="bmKakaoLinkInput" value="${escapeHtml(s.kakaoUrl||'')}"
+      placeholder="https://business.kakao.com/space/.../chats/..."
+      style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:8px 12px;font-size:13px;font-family:inherit;box-sizing:border-box;">
+  `;
+  document.getElementById('modalFooter').innerHTML = `
+    <button class="btn btn-primary" onclick="window.saveBMKakaoLink()">저장</button>
+    <button class="btn btn-outline" onclick="window.closeModal()">취소</button>
+  `;
+  openModal();
+  setTimeout(()=>document.getElementById('bmKakaoLinkInput')?.focus(),100);
+};
+
+window.saveBMKakaoLink = async function() {
+  const c = getClass(view.quarterId, view.classId);
+  if (!c || c.students.length === 0) return;
+  const s = c.students[currentStudentIdx];
+  if (!s) return;
+  s.kakaoUrl = document.getElementById('bmKakaoLinkInput').value.trim();
+  await saveDB();
+  window.closeModal();
+  window.updateBMKakaoLinkStatus();
+  showToast('✅ 채널링크 저장 완료','success');
+};
+
+window.updateBMKakaoLinkStatus = function() {
+  const el = document.getElementById('bmKakaoLinkStatus');
+  if (!el) return;
+  const c = getClass(view.quarterId, view.classId);
+  const s = (c && c.students.length > 0) ? c.students[currentStudentIdx] : null;
+  el.textContent = (s?.kakaoUrl) ? '채널링크 입력됨' : '채널링크 미입력';
+  const btn = document.getElementById('bmKakaoLinkBtn');
+  if (btn) btn.style.color = (s?.kakaoUrl) ? '#10B981' : '#EF4444';
 };
 
 window.saveCurrentMessage = async function() {
@@ -1890,9 +1944,11 @@ function renderMessageList() {
   // 현재 학생 메시지만 필터
   const allMsgs = (c.messages||[]).slice().sort((a,b) => b.createdAt - a.createdAt);
   const msgs = curName ? allMsgs.filter(m => m.studentName === curName) : allMsgs;
-  // 부제목 업데이트
+  // 타이틀/부제목 업데이트
+  const titleEl = document.getElementById('msgListTitle');
+  if (titleEl) titleEl.textContent = curName ? `${curName} 발송 목록` : '학생 문자 목록';
   const sub = document.getElementById('msgListSubtitle');
-  if (sub) sub.textContent = curName ? `${curName} 발송 내역` : '저장된 발송 내역';
+  if (sub) sub.textContent = curName ? `저장된 발송 내역 ${msgs.length}건` : '저장된 발송 내역';
   if (msgs.length === 0) {
     wrap.innerHTML = `<div class="empty-state" style="padding:30px 10px;"><div class="big-emoji">📭</div>${curName ? curName+'의 발송 내역이 없습니다' : "'발송목록에 저장' 버튼을 눌러 문자를 기록하세요"}</div>`;
     return;
@@ -2874,9 +2930,8 @@ function renderPLClassPage() {
               학생을 선택하면 문자가 생성됩니다
             </div>
             <div class="actions" style="margin-top:12px;">
-              <button class="btn btn-pl" id="plCopyBtn" onclick="window.copyPLMsg()">📋 복사</button>
-              <button class="btn btn-success" id="plSentBtn" onclick="window.markPLSent()">✅ 발송목록에 저장</button>
-              <button class="btn" id="plKakaoBtn" onclick="window.sendKakaoMsg()" style="background:#FAE100;color:#3A1D1D;font-weight:700;border:none;" title="카카오 채팅방 열기 + 메시지 복사">💬 카카오 발송</button>
+              <button class="btn" id="plKakaoBtn" onclick="window.sendKakaoMsg()" style="background:#FAE100;color:#3A1D1D;font-weight:700;border:none;" title="카카오 채팅방 열기 + 메시지 복사 + 발송목록 자동저장">💬 카카오 발송</button>
+              <button class="btn btn-outline btn-sm" id="plKakaoLinkBtn" onclick="window.editPLKakaoLink()" style="font-size:12px;" title="카카오 채널 주소 등록/수정">🔗 <span id="plKakaoLinkStatus">채널링크 확인중</span></button>
             </div>
           </div>
         </div>
@@ -3131,6 +3186,8 @@ window.selectPLStudent=function(sid){
   // 해당 학생 발송목록 업데이트
   updatePLStudentHistory(sid, classId);
   window.updatePLPreview(sid);
+  // 채널링크 버튼 상태 업데이트
+  window.updatePLKakaoLinkStatus(sid);
 };
 
 /* 해당 학생의 이 반 발송목록을 우측 카드에 렌더링 */
@@ -3312,17 +3369,58 @@ window.sendKakaoMsg=function(){
   if(!sid){showToast('⚠️ 학생을 먼저 선택해주세요');return;}
   const stu = pl_db.students[sid];
   if(!stu?.kakaoUrl){
-    showToast('⚠️ 카카오 채팅 URL이 없습니다. 학생 정보 수정에서 URL을 등록해주세요.');
+    showToast('⚠️ 채널링크가 없습니다. 🔗 채널링크 미입력 버튼을 눌러 URL을 등록해주세요.');
     return;
   }
   const msg = getPLCurrentMsg(sid);
+  // 발송목록 자동저장
+  window.markPLSent(sid);
   navigator.clipboard.writeText(msg).then(()=>{
     window.open(stu.kakaoUrl, '_blank');
-    showToast('✅ 메시지 복사 완료! 카카오 채팅창에서 붙여넣기(Ctrl+V) 후 전송하세요.', 'success');
+    showToast('✅ 메시지 복사 + 발송목록 저장! 카카오에서 Ctrl+V 후 전송하세요.', 'success');
   }).catch(()=>{
     window.open(stu.kakaoUrl, '_blank');
     showToast('카카오 채팅창이 열렸습니다. 직접 붙여넣기 해주세요.', 'success');
   });
+};
+
+window.editPLKakaoLink = function() {
+  const sid = plView.studentId;
+  if(!sid){showToast('⚠️ 학생을 먼저 선택해주세요');return;}
+  const stu = pl_db.students[sid];
+  if(!stu)return;
+  document.getElementById('modalTitle').textContent = `💬 ${stu.name} 카카오 채널 링크`;
+  document.getElementById('modalContent').innerHTML = `
+    <div style="margin-bottom:8px;font-size:13px;color:var(--text-secondary);">카카오 비즈니스 채널 채팅 URL을 입력하세요</div>
+    <input type="text" id="plKakaoLinkInput" value="${escapeHtml(stu.kakaoUrl||'')}"
+      placeholder="https://business.kakao.com/space/.../chats/..."
+      style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:8px 12px;font-size:13px;font-family:inherit;box-sizing:border-box;">
+  `;
+  document.getElementById('modalFooter').innerHTML = `
+    <button class="btn btn-primary" onclick="window.savePLKakaoLink('${sid}')">저장</button>
+    <button class="btn btn-outline" onclick="window.closeModal()">취소</button>
+  `;
+  openModal();
+  setTimeout(()=>document.getElementById('plKakaoLinkInput')?.focus(),100);
+};
+
+window.savePLKakaoLink = async function(sid) {
+  const stu = pl_db.students[sid];
+  if(!stu)return;
+  stu.kakaoUrl = document.getElementById('plKakaoLinkInput').value.trim();
+  await savePLDB();
+  window.closeModal();
+  window.updatePLKakaoLinkStatus(sid);
+  showToast('✅ 채널링크 저장 완료','success');
+};
+
+window.updatePLKakaoLinkStatus = function(sid) {
+  const el = document.getElementById('plKakaoLinkStatus');
+  if(!el)return;
+  const stu = pl_db.students[sid];
+  el.textContent = (stu?.kakaoUrl) ? '채널링크 입력됨' : '채널링크 미입력';
+  const btn = document.getElementById('plKakaoLinkBtn');
+  if(btn) btn.style.color = (stu?.kakaoUrl) ? '#10B981' : '#EF4444';
 };
 
 window.savePLSess=async function(sid){
