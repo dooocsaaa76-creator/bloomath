@@ -752,10 +752,10 @@ const firestore = getFirestore(firebaseApp);
 const DB_DOC  = doc(firestore, 'bloomath', 'main');   // Bloomath 반별수업
 const PL_DOC  = doc(firestore, 'bloomath', 'pl');     // PL 개별진도반
 
-const CLASS_OPTIONS = ['BM4-2기본','BM4-1심화','BM4-1기본','BM3-2기본','BM3-1기본','BM3-2심화','BM3-1심화'];
+const CLASS_OPTIONS = ['MM4-2기본','MM4-1심화','MM4-1기본','MM3-2기본','MM3-1기본','MM3-2심화','MM3-1심화'];
 
 // 반 이름 → 표시 순서
-const CLASS_ORDER = {'BM4-2기본':0,'BM4-1심화':1,'BM4-1기본':2,'BM3-2기본':3,'BM3-1기본':4,'BM3-2심화':5,'BM3-1심화':6};
+const CLASS_ORDER = {'MM4-2기본':0,'MM4-1심화':1,'MM4-1기본':2,'MM3-2기본':3,'MM3-1기본':4,'MM3-2심화':5,'MM3-1심화':6};
 
 let db = { quarters: [] };
 let view = { page: 'home', quarterId: null, classId: null };
@@ -907,7 +907,7 @@ function renderBreadcrumb() {
   let html = `<span class="crumb" onclick="window._go('main')">🏠 홈</span>`;
 
   if (['home','quarter','class'].includes(view.page)) {
-    html += `<span class="sep">›</span><span class="crumb" onclick="window._go('home')">Bloomath</span>`;
+    html += `<span class="sep">›</span><span class="crumb" onclick="window._go('home')">MATHMILE</span>`;
     if (view.page === 'quarter' || view.page === 'class') {
       const q = getQuarter(view.quarterId);
       html += `<span class="sep">›</span>`;
@@ -1062,6 +1062,7 @@ function renderQuarterPage() {
     return `
     <div class="entity-box" onclick="window._go('class','${q.id}','${c.id}')">
       <button class="del-btn" onclick="event.stopPropagation(); window.deleteClass('${q.id}','${c.id}')">✕</button>
+      <button onclick="event.stopPropagation(); window.editClassInfo('${q.id}','${c.id}')" style="position:absolute;top:10px;right:36px;background:none;border:none;cursor:pointer;font-size:14px;color:#6B7280;" title="반 정보 수정">✏️</button>
       <div class="emoji">📘</div>
       <div class="name">${c.name}</div>
       ${dayBadge}
@@ -1220,6 +1221,90 @@ window.deleteClass = function(qid, cid) {
   });
 };
 
+window.editClassInfo = function(qid, cid) {
+  const q = getQuarter(qid);
+  const c = q ? q.classes.find(x => x.id === cid) : null;
+  if (!c) return;
+  const tb = c.textbooks || ['','',''];
+  while (tb.length < 3) tb.push('');
+  document.getElementById('modalTitle').textContent = `반 정보 수정 — ${c.name}`;
+  document.getElementById('modalContent').innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:5px;">반 이름</label>
+        <input type="text" id="eciName" value="${escapeHtml(c.name)}" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:8px 12px;font-size:14px;font-family:inherit;">
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:5px;">요일</label>
+        <input type="text" id="eciDay" value="${escapeHtml(c.day||'')}" placeholder="예: 월, 수, 금" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:8px 12px;font-size:14px;font-family:inherit;">
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:5px;">담임명</label>
+        <input type="text" id="eciTeacher" value="${escapeHtml(c.teacher||'')}" placeholder="담임 선생님 이름" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:8px 12px;font-size:14px;font-family:inherit;">
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:5px;">수업 교재 (최대 3개)</label>
+        <input type="text" id="eciTb0" value="${escapeHtml(tb[0])}" placeholder="교재 1" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:8px 12px;font-size:14px;font-family:inherit;margin-bottom:6px;">
+        <input type="text" id="eciTb1" value="${escapeHtml(tb[1])}" placeholder="교재 2 (선택)" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:8px 12px;font-size:14px;font-family:inherit;margin-bottom:6px;">
+        <input type="text" id="eciTb2" value="${escapeHtml(tb[2])}" placeholder="교재 3 (선택)" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:8px 12px;font-size:14px;font-family:inherit;">
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:5px;">학생 명단</label>
+        <div id="eciStudentList" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:8px;">
+          ${c.students.length === 0 ? '<div style="color:var(--text-secondary);font-size:13px;padding:8px;">등록된 학생이 없습니다.</div>' :
+            c.students.map((s,i)=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-radius:6px;background:var(--surface2);margin-bottom:4px;">
+              <span style="font-size:13px;font-weight:500;">${escapeHtml(s.name)} <span style="color:var(--text-secondary);font-weight:400;">${escapeHtml(s.school||'')} ${escapeHtml(s.grade||'')}</span></span>
+              <button class="btn btn-danger btn-sm" onclick="window.eciRemoveStudent('${qid}','${cid}',${i},this)">삭제</button>
+            </div>`).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+  document.getElementById('modalFooter').innerHTML = `
+    <button class="btn btn-primary" onclick="window.saveClassInfo('${qid}','${cid}')">저장</button>
+    <button class="btn btn-outline" onclick="window.closeModal()">취소</button>
+  `;
+  document.getElementById('modal').style.display = 'block';
+};
+
+window.eciRemoveStudent = async function(qid, cid, idx, btn) {
+  const q = getQuarter(qid);
+  const c = q ? q.classes.find(x=>x.id===cid) : null;
+  if (!c) return;
+  const s = c.students[idx];
+  if (!confirm(`'${s.name}' 학생을 명단에서 삭제할까요?`)) return;
+  c.students.splice(idx, 1);
+  await saveDB();
+  // 목록 새로고침
+  const list = document.getElementById('eciStudentList');
+  if (list) {
+    list.innerHTML = c.students.length === 0 ? '<div style="color:var(--text-secondary);font-size:13px;padding:8px;">등록된 학생이 없습니다.</div>' :
+      c.students.map((s,i)=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-radius:6px;background:var(--surface2);margin-bottom:4px;">
+        <span style="font-size:13px;font-weight:500;">${escapeHtml(s.name)} <span style="color:var(--text-secondary);font-weight:400;">${escapeHtml(s.school||'')} ${escapeHtml(s.grade||'')}</span></span>
+        <button class="btn btn-danger btn-sm" onclick="window.eciRemoveStudent('${qid}','${cid}',${i},this)">삭제</button>
+      </div>`).join('');
+  }
+  showToast('🗑️ 삭제되었습니다');
+};
+
+window.saveClassInfo = async function(qid, cid) {
+  const q = getQuarter(qid);
+  const c = q ? q.classes.find(x=>x.id===cid) : null;
+  if (!c) return;
+  c.name    = document.getElementById('eciName').value.trim() || c.name;
+  c.day     = document.getElementById('eciDay').value.trim();
+  c.teacher = document.getElementById('eciTeacher').value.trim();
+  c.textbooks = [
+    document.getElementById('eciTb0').value.trim(),
+    document.getElementById('eciTb1').value.trim(),
+    document.getElementById('eciTb2').value.trim(),
+  ].filter(Boolean);
+  await saveDB();
+  window.closeModal();
+  render();
+  showToast('✅ 반 정보가 저장되었습니다', 'success');
+};
+
 /* ===========================================================
    CLASS PAGE
 =========================================================== */
@@ -1241,7 +1326,7 @@ function renderClassPage() {
       </div>
       <div style="display:flex;gap:8px;">
         <button class="btn btn-outline" onclick="window._go('quarter','${view.quarterId}')">← 반 목록</button>
-        <button class="btn btn-outline" onclick="window.toggleStudentMgmt()">👤 학생 명단 관리</button>
+        <button class="btn btn-outline" onclick="window.toggleStudentMgmt()">👤 학생 명단</button>
       </div>
     </div>
 
@@ -1281,8 +1366,16 @@ function renderClassPage() {
         </div>
         <div class="card-body">
           <div class="field"><label>날짜</label><input type="text" id="date" placeholder="예: 6/16(화)"></div>
-          <div class="field"><label>진도</label><textarea id="progress" placeholder="오늘 수업한 진도 내용을 입력하세요"></textarea></div>
-          <div class="field"><label>과제</label><textarea id="homework" placeholder="이번 주 과제를 입력하세요"></textarea></div>
+          <div id="textbookProgressWrap"></div>
+          <div class="field" style="margin-top:14px;">
+            <label style="font-size:13px;font-weight:700;color:#1E293B;display:flex;align-items:center;gap:6px;">📝 일일TEST</label>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px;">
+              <div><label style="font-size:11px;color:var(--text-secondary);">과정</label><input type="text" id="testCourse" placeholder="예: CABLE 4-1" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13px;font-family:inherit;"></div>
+              <div><label style="font-size:11px;color:var(--text-secondary);">단원</label><input type="text" id="testUnit" placeholder="예: 6단원 규칙 찾기" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13px;font-family:inherit;"></div>
+              <div><label style="font-size:11px;color:var(--text-secondary);">학생 점수</label><input type="number" id="testScore" placeholder="점수" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13px;font-family:inherit;"></div>
+              <div><label style="font-size:11px;color:var(--text-secondary);">만점</label><input type="number" id="testMax" placeholder="만점" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13px;font-family:inherit;"></div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1319,23 +1412,23 @@ function renderClassPage() {
         <div class="card-body">
           <div class="result-box" id="singleResult"><span class="result-placeholder">왼쪽에서 내용을 입력하면 자동으로 문자가 생성됩니다.</span></div>
           <div class="actions">
-            <button class="btn btn-primary" onclick="window.copySingle()">📋 복사</button>
             <button class="btn btn-success" onclick="window.saveCurrentMessage()">💾 발송목록에 저장</button>
-            <button class="btn btn-outline btn-sm" onclick="window.previewAll()">전체보기</button>
             <button class="btn" onclick="window.sendKakaoBM()" style="background:#FAE100;color:#3A1D1D;font-weight:700;border:none;" title="카카오 채팅방 열기 + 메시지 복사">💬 카카오 발송</button>
           </div>
         </div>
       </div>
 
       <div class="card">
-        <div class="card-header">
-          <div class="card-icon icon-students">👥</div>
-          <div><div class="card-title">전체 학생 문자 목록</div><div class="card-subtitle">저장된 발송 내역 (날짜 · 학생이름 · 전체)</div></div>
+        <div class="card-header" style="cursor:pointer;" onclick="window.toggleMsgList()">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div class="card-icon icon-students">👥</div>
+            <div><div class="card-title">전체 학생 문자 목록</div><div class="card-subtitle">저장된 발송 내역 (날짜 · 학생이름 · 전체)</div></div>
+          </div>
+          <span id="msgListToggleIcon" style="font-size:18px;color:var(--text-secondary);margin-left:auto;">▼</span>
         </div>
-        <div class="card-body">
-          <div id="messageListWrap"></div>
-          <div class="actions" style="margin-top:16px;">
-            <button class="btn btn-success" onclick="window.copyAllCurrent()">📨 현재 학생 전체 복사</button>
+        <div id="msgListBody" style="display:none;">
+          <div class="card-body">
+            <div id="messageListWrap"></div>
           </div>
         </div>
       </div>
@@ -1343,16 +1436,47 @@ function renderClassPage() {
   `;
 }
 
+function renderTextbookProgressWrap(c) {
+  const wrap = document.getElementById('textbookProgressWrap');
+  if (!wrap) return;
+  const tbs = (c.textbooks && c.textbooks.length > 0) ? c.textbooks : [''];
+  const tbProgress = c.tbProgress || {};
+  const tbHomework = c.tbHomework || {};
+  wrap.innerHTML = tbs.map((tb, i) => `
+    <div style="margin-bottom:10px;">
+      <div style="font-size:12px;font-weight:700;color:var(--primary);margin-bottom:4px;">📗 ${escapeHtml(tb||('교재 '+(i+1)))}</div>
+      <div class="field" style="margin-bottom:4px;">
+        <label style="font-size:11.5px;color:var(--text-secondary);">진도</label>
+        <textarea id="tbProgress_${i}" placeholder="진도 내용 입력" style="min-height:54px;" oninput="onCommonInput()">${escapeHtml(tbProgress[i]||'')}</textarea>
+      </div>
+      <div class="field">
+        <label style="font-size:11.5px;color:var(--text-secondary);">과제</label>
+        <textarea id="tbHomework_${i}" placeholder="과제 내용 입력" style="min-height:54px;" oninput="onCommonInput()">${escapeHtml(tbHomework[i]||'')}</textarea>
+      </div>
+    </div>
+  `).join('');
+}
+
 function initClassPage() {
   const c = getClass(view.quarterId, view.classId);
   if (!c) return;
   document.getElementById('date').value = c.date || '';
-  document.getElementById('progress').value = c.progress || '';
-  document.getElementById('homework').value = c.homework || '';
+
+  // 교재별 진도/과제 렌더링
+  renderTextbookProgressWrap(c);
+
+  // 일일TEST
+  const testData = c.testData || {};
+  document.getElementById('testCourse').value = testData.course || '';
+  document.getElementById('testUnit').value = testData.unit || '';
+  document.getElementById('testScore').value = testData.score || '';
+  document.getElementById('testMax').value = testData.max || '';
 
   document.getElementById('date').oninput = onCommonInput;
-  document.getElementById('progress').oninput = onCommonInput;
-  document.getElementById('homework').oninput = onCommonInput;
+  document.getElementById('testCourse').oninput = onCommonInput;
+  document.getElementById('testUnit').oninput = onCommonInput;
+  document.getElementById('testScore').oninput = onCommonInput;
+  document.getElementById('testMax').oninput = onCommonInput;
   document.getElementById('comment').oninput = () => { onStudentInput(); countChars(); };
 
   if (currentStudentIdx >= c.students.length) currentStudentIdx = 0;
@@ -1363,11 +1487,42 @@ function initClassPage() {
   renderMessageList();
 }
 
+window.toggleMsgList = function() {
+  const body = document.getElementById('msgListBody');
+  const icon = document.getElementById('msgListToggleIcon');
+  if (!body) return;
+  const open = body.style.display === 'none';
+  body.style.display = open ? '' : 'none';
+  if (icon) icon.textContent = open ? '▲' : '▼';
+};
+
 function onCommonInput() {
   const c = getClass(view.quarterId, view.classId);
   c.date = document.getElementById('date').value;
-  c.progress = document.getElementById('progress').value;
-  c.homework = document.getElementById('homework').value;
+
+  // 교재별 진도/과제 저장
+  const tbs = (c.textbooks && c.textbooks.length > 0) ? c.textbooks : [''];
+  c.tbProgress = {};
+  c.tbHomework = {};
+  tbs.forEach((_, i) => {
+    const p = document.getElementById(`tbProgress_${i}`);
+    const h = document.getElementById(`tbHomework_${i}`);
+    if (p) c.tbProgress[i] = p.value;
+    if (h) c.tbHomework[i] = h.value;
+  });
+
+  // 일일TEST 저장
+  c.testData = {
+    course: (document.getElementById('testCourse')||{}).value || '',
+    unit:   (document.getElementById('testUnit')||{}).value || '',
+    score:  (document.getElementById('testScore')||{}).value || '',
+    max:    (document.getElementById('testMax')||{}).value || '',
+  };
+
+  // 하위 호환 (기존 progress/homework 필드도 유지)
+  c.progress = Object.values(c.tbProgress).filter(Boolean).join(' / ');
+  c.homework = Object.values(c.tbHomework).filter(Boolean).join(' / ');
+
   saveDB();
   generateSingle();
 }
@@ -1382,13 +1537,17 @@ function onStudentInput() {
 }
 
 window.resetCommonFields = function() {
-  showConfirm('날짜 · 진도 · 과제 내용을 모두 지울까요? (학생별 코멘트는 유지됩니다)', async () => {
+  showConfirm('날짜 · 진도 · 과제 · 일일TEST 내용을 모두 지울까요? (학생별 코멘트는 유지됩니다)', async () => {
     const c = getClass(view.quarterId, view.classId);
     c.date = ''; c.progress = ''; c.homework = '';
+    c.tbProgress = {}; c.tbHomework = {};
+    c.testData = { course:'', unit:'', score:'', max:'' };
     await saveDB();
     document.getElementById('date').value = '';
-    document.getElementById('progress').value = '';
-    document.getElementById('homework').value = '';
+    ['testCourse','testUnit','testScore','testMax'].forEach(id => {
+      const el = document.getElementById(id); if(el) el.value = '';
+    });
+    renderTextbookProgressWrap(c);
     generateSingle();
     showToast('↺ 공통 내용이 초기화되었습니다', 'success');
   });
@@ -1589,23 +1748,48 @@ window.removeRosterStudent = function(idx) {
   });
 };
 
-/* 문자 생성 */
-function buildMessage(date, progress, homework, studentName, comment) {
+/* 문자 생성 (교재별 진도/과제 + 일일TEST 포함) */
+function buildMessage(date, progress, homework, studentName, comment, classObj) {
   const name = studentName || '학생';
   let msg = '';
-  if (date) msg += `${date} 진도 및 과제 안내
+  if (date) msg += `${date} 진도 및 과제 안내\n\n`;
 
-`;
-  if (progress) msg += `■ 진도
-${progress}
-`;
-  if (homework) msg += `■ 과제
-${homework}
-`;
-  if (progress || homework) msg += `
-`;
-  msg += `오늘 ${name}학생의 Bloomath는? 
-`;
+  // 교재별 진도/과제 (classObj가 있을 때 우선 사용)
+  if (classObj && classObj.textbooks && classObj.textbooks.length > 0) {
+    const tbs = classObj.textbooks;
+    const tbP = classObj.tbProgress || {};
+    const tbH = classObj.tbHomework || {};
+    const hasAny = tbs.some((_,i) => tbP[i] || tbH[i]);
+    if (hasAny) {
+      tbs.forEach((tb, i) => {
+        const p = tbP[i]; const h = tbH[i];
+        if (!p && !h) return;
+        msg += `【${tb}】\n`;
+        if (p) msg += `■ 진도\n${p}\n`;
+        if (h) msg += `■ 과제\n${h}\n`;
+        msg += '\n';
+      });
+    }
+  } else {
+    if (progress) msg += `■ 진도\n${progress}\n`;
+    if (homework) msg += `■ 과제\n${homework}\n`;
+    if (progress || homework) msg += '\n';
+  }
+
+  // 일일TEST
+  if (classObj && classObj.testData) {
+    const t = classObj.testData;
+    if (t.course || t.unit || t.score) {
+      msg += `일일TEST\n`;
+      if (t.course) msg += `▶ ${t.course}`;
+      if (t.unit) msg += ` / ${t.unit}`;
+      if (t.score) msg += ` / ${t.score}점`;
+      if (t.max) msg += ` / ${t.max}점 만점`;
+      msg += '\n\n';
+    }
+  }
+
+  msg += `오늘 ${name}학생의 MATHMILE는? \n`;
   if (comment) msg += comment;
   return msg.trim();
 }
@@ -1619,8 +1803,11 @@ function generateSingle() {
     return;
   }
   const s = c.students[currentStudentIdx];
-  const msg = buildMessage(c.date, c.progress, c.homework, s.name, s.comment);
-  if (!c.date && !c.progress && !c.homework && !s.name && !s.comment) {
+  const msg = buildMessage(c.date, c.progress, c.homework, s.name, s.comment, c);
+  const hasContent = c.date || c.progress || c.homework || s.name || s.comment ||
+    (c.testData && (c.testData.course || c.testData.score)) ||
+    (c.tbProgress && Object.values(c.tbProgress).some(Boolean));
+  if (!hasContent) {
     box.innerHTML = '<span class="result-placeholder">왼쪽에서 내용을 입력하면 자동으로 문자가 생성됩니다.</span>';
   } else {
     box.textContent = msg;
@@ -1640,7 +1827,7 @@ window.copySingle = function() {
   const c = getClass(view.quarterId, view.classId);
   if (c.students.length === 0) { showToast('⚠️ 학생 명단을 먼저 추가해주세요'); return; }
   const s = c.students[currentStudentIdx];
-  const msg = buildMessage(c.date, c.progress, c.homework, s.name, s.comment);
+  const msg = buildMessage(c.date, c.progress, c.homework, s.name, s.comment, c);
   navigator.clipboard.writeText(msg).then(() => showToast('✅ 복사되었습니다!', 'success'));
 };
 
@@ -1652,7 +1839,7 @@ window.sendKakaoBM = function() {
     showToast('⚠️ 카카오 채팅 URL이 없습니다. 명단에서 학생 수정 버튼을 눌러 URL을 등록해주세요.');
     return;
   }
-  const msg = buildMessage(c.date, c.progress, c.homework, s.name, s.comment);
+  const msg = buildMessage(c.date, c.progress, c.homework, s.name, s.comment, c);
   navigator.clipboard.writeText(msg).then(() => {
     window.open(s.kakaoUrl, '_blank');
     showToast('✅ 메시지 복사 완료! 카카오 채팅창에서 Ctrl+V 후 전송하세요.', 'success');
@@ -1666,7 +1853,7 @@ window.saveCurrentMessage = async function() {
   const c = getClass(view.quarterId, view.classId);
   if (c.students.length === 0) { showToast('⚠️ 학생 명단을 먼저 추가해주세요'); return; }
   const s = c.students[currentStudentIdx];
-  const msg = buildMessage(c.date, c.progress, c.homework, s.name, s.comment);
+  const msg = buildMessage(c.date, c.progress, c.homework, s.name, s.comment, c);
   if (!c.date || !s.name) { showToast('⚠️ 날짜와 학생 이름을 입력해주세요'); return; }
   if (!c.messages) c.messages = [];
   const existing = c.messages.find(m => m.date === c.date && m.studentId === s.id);
@@ -1743,7 +1930,7 @@ window.previewAll = function() {
   document.getElementById('modalContent').innerHTML = `
     <div style="display:flex;flex-direction:column;gap:18px;">
       ${c.students.map((s,i) => {
-        const msg = buildMessage(c.date, c.progress, c.homework, s.name, s.comment);
+        const msg = buildMessage(c.date, c.progress, c.homework, s.name, s.comment, c);
         return `
           <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;">
             <div style="background:var(--primary-light);padding:10px 16px;font-weight:600;font-size:13px;color:var(--primary);display:flex;justify-content:space-between;align-items:center;">
@@ -1766,7 +1953,7 @@ window.previewAll = function() {
 window.copyOneIdx = function(idx) {
   const c = getClass(view.quarterId, view.classId);
   const s = c.students[idx];
-  const msg = buildMessage(c.date, c.progress, c.homework, s.name, s.comment);
+  const msg = buildMessage(c.date, c.progress, c.homework, s.name, s.comment, c);
   navigator.clipboard.writeText(msg).then(() => showToast(`✅ ${s.name||'학생'} 복사 완료!`, 'success'));
 };
 
@@ -1777,7 +1964,7 @@ window.saveAllCurrent = async function() {
   let count = 0;
   c.students.forEach(s => {
     if (!s.name) return;
-    const msg = buildMessage(c.date, c.progress, c.homework, s.name, s.comment);
+    const msg = buildMessage(c.date, c.progress, c.homework, s.name, s.comment, c);
     const existing = c.messages.find(m => m.date === c.date && m.studentId === s.id);
     const entry = { id:existing?existing.id:uid(), date:c.date, progress:c.progress, homework:c.homework, studentId:s.id, studentName:s.name, comment:s.comment, text:msg, createdAt:existing?existing.createdAt:Date.now() };
     if (existing) Object.assign(existing, entry); else c.messages.push(entry);
@@ -1793,7 +1980,7 @@ window.copyAllCurrent = function() {
   const c = getClass(view.quarterId, view.classId);
   const allMsgs = c.students.filter(s=>s.name||s.comment)
     .map(s=>`[ ${s.name||'학생'} ]
-${buildMessage(c.date,c.progress,c.homework,s.name,s.comment)}`)
+${buildMessage(c.date,c.progress,c.homework,s.name,s.comment,c)}`)
     .join('\n\n─────────────────────\n\n');
   if (!allMsgs) return showToast('⚠️ 학생 정보를 먼저 입력해주세요');
   navigator.clipboard.writeText(allMsgs).then(() => showToast('✅ 전체 복사 완료!', 'success'));
@@ -3620,7 +3807,7 @@ window.generateBMComment = function() {
   const kwLine = keyword ? `키워드/특이사항: ${keyword}` : '';
   const hwLine = hw ? `가정학습 과제: ${hw}` : '';
 
-  const prompt = `당신은 초등·중등 수학학원(Bloomath) 선생님입니다.
+  const prompt = `당신은 초등·중등 수학학원(MATHMILE) 선생님입니다.
 아래 정보를 바탕으로 학부모님께 보내는 수업 안내 코멘트를 작성해주세요.
 
 ─ 수업 정보 ─
