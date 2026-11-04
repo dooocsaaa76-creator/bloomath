@@ -1055,19 +1055,18 @@ function renderQuarterPage() {
     return oa - ob;
   });
 
-  // 2번: 반 카드에 요일 표시
+  // 2번: 반 카드
   const boxes = sortedClasses.map(c => {
     const totalMsgs = (c.messages || []).length;
-    const dayBadge = c.day ? `<div style="font-size:11px;color:#6366F1;font-weight:700;margin-bottom:3px;">${c.day}요일</div>` : '';
     return `
     <div class="entity-box" onclick="window._go('class','${q.id}','${c.id}')">
       <button class="del-btn" onclick="event.stopPropagation(); window.deleteClass('${q.id}','${c.id}')">✕</button>
       <button onclick="event.stopPropagation(); window.editClassInfo('${q.id}','${c.id}')" style="position:absolute;top:10px;right:36px;background:none;border:none;cursor:pointer;font-size:14px;color:#6B7280;" title="반 정보 수정">✏️</button>
       <div class="emoji">📘</div>
       <div class="name">${c.name}</div>
-      ${dayBadge}
       <div class="meta" style="margin-bottom:6px;">학생 ${c.students.length}명 · 발송 ${totalMsgs}건</div>
       ${c.teacher ? `<span class="teacher-badge">👩‍🏫 ${escapeHtml(c.teacher)}</span>` : `<span style="font-size:11px;color:#D1D5DB;">담임 미지정</span>`}
+      <div style="margin-top:6px;"><button class="btn btn-outline btn-sm" onclick="event.stopPropagation();window.editClassInfo('${q.id}','${c.id}')" style="font-size:11px;padding:3px 10px;">✏️ 수정</button></div>
     </div>
   `;
   }).join('');
@@ -1225,8 +1224,8 @@ window.editClassInfo = function(qid, cid) {
   const q = getQuarter(qid);
   const c = q ? q.classes.find(x => x.id === cid) : null;
   if (!c) return;
-  const tb = c.textbooks || ['','',''];
-  while (tb.length < 3) tb.push('');
+  const tb = c.textbooks || ['',''];
+  while (tb.length < 2) tb.push('');
   document.getElementById('modalTitle').textContent = `반 정보 수정 — ${c.name}`;
   document.getElementById('modalContent').innerHTML = `
     <div style="display:flex;flex-direction:column;gap:14px;">
@@ -1243,19 +1242,14 @@ window.editClassInfo = function(qid, cid) {
         <input type="text" id="eciTeacher" value="${escapeHtml(c.teacher||'')}" placeholder="담임 선생님 이름" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:8px 12px;font-size:14px;font-family:inherit;">
       </div>
       <div>
-        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:5px;">수업 교재 (최대 3개)</label>
+        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:5px;">수업 교재 (최대 2개)</label>
         <input type="text" id="eciTb0" value="${escapeHtml(tb[0])}" placeholder="교재 1" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:8px 12px;font-size:14px;font-family:inherit;margin-bottom:6px;">
-        <input type="text" id="eciTb1" value="${escapeHtml(tb[1])}" placeholder="교재 2 (선택)" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:8px 12px;font-size:14px;font-family:inherit;margin-bottom:6px;">
-        <input type="text" id="eciTb2" value="${escapeHtml(tb[2])}" placeholder="교재 3 (선택)" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:8px 12px;font-size:14px;font-family:inherit;">
+        <input type="text" id="eciTb1" value="${escapeHtml(tb[1])}" placeholder="교재 2 (선택)" style="width:100%;border:1.5px solid var(--border);border-radius:8px;padding:8px 12px;font-size:14px;font-family:inherit;">
       </div>
       <div>
         <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:5px;">학생 명단</label>
-        <div id="eciStudentList" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:8px;">
-          ${c.students.length === 0 ? '<div style="color:var(--text-secondary);font-size:13px;padding:8px;">등록된 학생이 없습니다.</div>' :
-            c.students.map((s,i)=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-radius:6px;background:var(--surface2);margin-bottom:4px;">
-              <span style="font-size:13px;font-weight:500;">${escapeHtml(s.name)} <span style="color:var(--text-secondary);font-weight:400;">${escapeHtml(s.school||'')} ${escapeHtml(s.grade||'')}</span></span>
-              <button class="btn btn-danger btn-sm" onclick="window.eciRemoveStudent('${qid}','${cid}',${i},this)">삭제</button>
-            </div>`).join('')}
+        <div id="eciStudentList" style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:8px;">
+          ${window._renderEciStudentList(c, qid, cid)}
         </div>
       </div>
     </div>
@@ -1267,7 +1261,72 @@ window.editClassInfo = function(qid, cid) {
   document.getElementById('modal').style.display = 'block';
 };
 
-window.eciRemoveStudent = async function(qid, cid, idx, btn) {
+window._renderEciStudentList = function(c, qid, cid) {
+  if (c.students.length === 0) return '<div style="color:var(--text-secondary);font-size:13px;padding:8px;">등록된 학생이 없습니다.</div>';
+  return c.students.map((s,i)=>`
+    <div id="eciRow_${i}" style="border-radius:6px;background:var(--surface2);margin-bottom:4px;padding:6px 8px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <span style="font-size:13px;font-weight:600;">${escapeHtml(s.name)} <span style="color:var(--text-secondary);font-weight:400;font-size:12px;">${escapeHtml(s.school||'')} ${escapeHtml(s.grade||'')}</span></span>
+        <div style="display:flex;gap:4px;">
+          <button class="btn btn-outline btn-sm" style="color:var(--primary);border-color:var(--primary);font-size:11px;" onclick="window.eciEditStudent('${qid}','${cid}',${i})">수정</button>
+          <button class="btn btn-danger btn-sm" style="font-size:11px;" onclick="window.eciRemoveStudent('${qid}','${cid}',${i})">삭제</button>
+        </div>
+      </div>
+      <div id="eciEditForm_${i}" style="display:none;margin-top:8px;"></div>
+    </div>`).join('');
+};
+
+window.eciEditStudent = function(qid, cid, idx) {
+  // 열려있으면 닫기
+  const existing = document.getElementById(`eciEditForm_${idx}`);
+  if (!existing) return;
+  if (existing.style.display !== 'none') { existing.style.display='none'; return; }
+  // 다른 열린 폼 닫기
+  document.querySelectorAll('[id^="eciEditForm_"]').forEach(el=>el.style.display='none');
+  const q = getQuarter(qid);
+  const c = q ? q.classes.find(x=>x.id===cid) : null;
+  if (!c) return;
+  const s = c.students[idx];
+  const inp = 'width:100%;border:1.5px solid var(--primary);border-radius:6px;padding:5px 8px;font-size:12px;font-family:inherit;';
+  existing.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">
+      <input type="text" id="eciEs_school_${idx}" value="${escapeHtml(s.school||'')}" placeholder="학교" style="${inp}">
+      <select id="eciEs_grade_${idx}" style="${inp}">
+        <option value="">학년 선택</option>
+        ${['초1','초2','초3','초4','초5','초6','중1','중2','중3'].map(g=>`<option value="${g}" ${s.grade===g?'selected':''}>${g}</option>`).join('')}
+      </select>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">
+      <input type="text" id="eciEs_class1_${idx}" value="${escapeHtml(s.class1||'')}" placeholder="수업1" style="${inp}">
+      <input type="text" id="eciEs_class2_${idx}" value="${escapeHtml(s.class2||'')}" placeholder="수업2" style="${inp}">
+    </div>
+    <input type="text" id="eciEs_kakao_${idx}" value="${escapeHtml(s.kakaoUrl||'')}" placeholder="카카오 채팅 URL" style="${inp}margin-bottom:6px;">
+    <div style="display:flex;gap:6px;justify-content:flex-end;">
+      <button class="btn btn-primary btn-sm" onclick="window.eciSaveStudent('${qid}','${cid}',${idx})">저장</button>
+      <button class="btn btn-outline btn-sm" onclick="document.getElementById('eciEditForm_${idx}').style.display='none'">취소</button>
+    </div>
+  `;
+  existing.style.display = 'block';
+};
+
+window.eciSaveStudent = async function(qid, cid, idx) {
+  const q = getQuarter(qid);
+  const c = q ? q.classes.find(x=>x.id===cid) : null;
+  if (!c) return;
+  const s = c.students[idx];
+  s.school   = document.getElementById(`eciEs_school_${idx}`)?.value.trim() || s.school;
+  s.grade    = document.getElementById(`eciEs_grade_${idx}`)?.value || s.grade;
+  s.class1   = document.getElementById(`eciEs_class1_${idx}`)?.value.trim() || '';
+  s.class2   = document.getElementById(`eciEs_class2_${idx}`)?.value.trim() || '';
+  s.kakaoUrl = document.getElementById(`eciEs_kakao_${idx}`)?.value.trim() || '';
+  await saveDB();
+  // 목록 새로고침
+  const list = document.getElementById('eciStudentList');
+  if (list) list.innerHTML = window._renderEciStudentList(c, qid, cid);
+  showToast('✅ 학생 정보 저장 완료', 'success');
+};
+
+window.eciRemoveStudent = async function(qid, cid, idx) {
   const q = getQuarter(qid);
   const c = q ? q.classes.find(x=>x.id===cid) : null;
   if (!c) return;
@@ -1275,15 +1334,8 @@ window.eciRemoveStudent = async function(qid, cid, idx, btn) {
   if (!confirm(`'${s.name}' 학생을 명단에서 삭제할까요?`)) return;
   c.students.splice(idx, 1);
   await saveDB();
-  // 목록 새로고침
   const list = document.getElementById('eciStudentList');
-  if (list) {
-    list.innerHTML = c.students.length === 0 ? '<div style="color:var(--text-secondary);font-size:13px;padding:8px;">등록된 학생이 없습니다.</div>' :
-      c.students.map((s,i)=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-radius:6px;background:var(--surface2);margin-bottom:4px;">
-        <span style="font-size:13px;font-weight:500;">${escapeHtml(s.name)} <span style="color:var(--text-secondary);font-weight:400;">${escapeHtml(s.school||'')} ${escapeHtml(s.grade||'')}</span></span>
-        <button class="btn btn-danger btn-sm" onclick="window.eciRemoveStudent('${qid}','${cid}',${i},this)">삭제</button>
-      </div>`).join('');
-  }
+  if (list) list.innerHTML = window._renderEciStudentList(c, qid, cid);
   showToast('🗑️ 삭제되었습니다');
 };
 
@@ -1297,7 +1349,6 @@ window.saveClassInfo = async function(qid, cid) {
   c.textbooks = [
     document.getElementById('eciTb0').value.trim(),
     document.getElementById('eciTb1').value.trim(),
-    document.getElementById('eciTb2').value.trim(),
   ].filter(Boolean);
   await saveDB();
   window.closeModal();
@@ -1326,7 +1377,6 @@ function renderClassPage() {
       </div>
       <div style="display:flex;gap:8px;">
         <button class="btn btn-outline" onclick="window._go('quarter','${view.quarterId}')">← 반 목록</button>
-        <button class="btn btn-outline" onclick="window.toggleStudentMgmt()">👤 학생 명단</button>
       </div>
     </div>
 
