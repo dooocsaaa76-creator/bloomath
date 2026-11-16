@@ -943,8 +943,37 @@ function getClass(qid, cid) {
    ROUTER / RENDER
 =========================================================== */
 
+/* ===========================================================
+   브라우저 뒤로가기/앞으로가기 연동
+   - 화면(view)이 바뀔 때마다 브라우저 방문기록에 추가
+   - 뒤로가기 → 앱 안의 이전 화면으로 이동 (앱 첫 화면에서 뒤로가기만 사이트를 떠남)
+=========================================================== */
+let restoringHistory = false;
+function syncHistory() {
+  if (restoringHistory) return;
+  const cur = history.state && history.state.appView;
+  if (!cur) { history.replaceState({ appView: { ...view } }, ''); return; }
+  if (JSON.stringify(cur) !== JSON.stringify(view)) history.pushState({ appView: { ...view } }, '');
+}
+window.addEventListener('popstate', (e) => {
+  const v = e.state && e.state.appView;
+  if (!v || !isInitialized) return;
+  // 열려 있던 모달은 닫기
+  ['modal', 'confirmModal', 'statsModal', 'plAddStudentModal'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.style.display = 'none';
+  });
+  view = { ...v };
+  if (v.page === 'class') { currentStudentIdx = 0; studentMgmtOpen = false; }
+  if (v.page === 'pl-class') { plView.classId = v.plClassId; window._plCurrentTermId = v.plTermId; }
+  if (v.page === 'pl-terms' || v.page === 'pl-roster') window._plCurrentTermId = v.plTermId;
+  restoringHistory = true;
+  try { render(); } finally { restoringHistory = false; }
+  window.scrollTo(0, 0);
+});
+
 function render() {
   if (!view || !view.page) return;
+  syncHistory();
   renderBreadcrumb();
   const app = document.getElementById('app');
   if (!app) return;
