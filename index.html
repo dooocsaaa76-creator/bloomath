@@ -2532,6 +2532,23 @@ function silentPLRefresh() {
 }
 
 function getPLTerm(tid) { return pl_db.terms.find(t=>t.id===tid); }
+
+/* 같은 학생 찾기 (학생 ID 공유 규칙)
+   - 같은 학생이 여러 반에 있어도 studentId 하나를 공유 → 발송목록·채널링크·학교/학년이 모든 반에서 연동
+   - 이름이 같고, 학년/학교가 입력돼 있으면 그것도 같아야 같은 학생으로 봄
+   - 현재 분기 반에 이미 있는 학생 우선, 없으면 이전 분기 학생도 재사용 */
+function findExistingPLStudent(name, grade, school, termId) {
+  const term = getPLTerm(termId);
+  const termClassIds = new Set((term?.classes || []).map(c => c.id));
+  const inTerm = sid => [...termClassIds].some(cid => pl_db.classes[cid]?.students?.some(s => s.id === sid));
+  const matches = Object.entries(pl_db.students).filter(([sid, stu]) => {
+    if (stu.name !== name) return false;
+    if (grade && stu.grade && stu.grade !== grade) return false;
+    if (school && stu.school && stu.school !== school) return false;
+    return true;
+  });
+  return matches.find(([sid]) => inTerm(sid)) || matches[0] || null;
+}
 function getPLClassDef(termId, classId) { const t=getPLTerm(termId); return t?t.classes.find(c=>c.id===classId):null; }
 function getPLClassData(classId) {
   if (!pl_db.classes[classId]) pl_db.classes[classId]={students:[],sessions:[],currentDate:''};
@@ -2616,24 +2633,27 @@ function renderPLHome() {
 /* 관별 기본 반 템플릿 */
 const PL_DEFAULT_CLASSES = {
   '영재관': {
-    // 첫번째 테이블: 초등PL (월~금 1부/2부)
+    // 첫번째 테이블: 초등PL (PL명단_11월분기(11.18기준) 기준)
     elementary: [
-      {name:'월1부', day:'월', time:'3:00~6:00'}, {name:'월2부', day:'월', time:'6:00~9:00'},
-      {name:'화1부', day:'화', time:'3:00~6:00'}, {name:'화2부', day:'화', time:'6:00~9:00'},
-      {name:'수1부', day:'수', time:'3:00~6:00'}, {name:'수2부', day:'수', time:'6:00~9:00'},
-      {name:'목1부', day:'목', time:'3:00~6:00'}, {name:'목2부', day:'목', time:'6:00~9:00'},
-      {name:'금1부', day:'금', time:'3:00~6:00'}, {name:'금2부', day:'금', time:'6:00~9:00'},
+      {name:'월1부',  day:'월', time:'3:00~6:00'}, {name:'월2부', day:'월', time:'6:00~9:00'},
+      {name:'화1부',  day:'화', time:'3:00~6:00'}, {name:'화2부', day:'화', time:'6:00~9:00'},
+      {name:'수1부A', day:'수', time:'3:00~6:00'}, {name:'수1부B', day:'수', time:'3:00~6:00'}, {name:'수2부', day:'수', time:'6:00~9:00'},
+      {name:'목1부A', day:'목', time:'3:00~6:00'}, {name:'목1부B', day:'목', time:'3:00~6:00'}, {name:'목2부', day:'목', time:'6:00~9:00'},
+      {name:'금1부',  day:'금', time:'3:00~6:00'},
     ],
     // 두번째 테이블: 중등PL & 주말단과
     secondary: [
-      {name:'수A',  day:'수', time:'5:00~10:00'},
-      {name:'수B',  day:'수', time:'5:00~10:00'},
-      {name:'금',   day:'금', time:'7:00~10:00'},
-      {name:'토1부', day:'토', time:'9:30~12:30'},
-      {name:'토2부', day:'토', time:'12:00~15:00'},
-      {name:'토3부A', day:'토', time:'13:00~16:00'},
-      {name:'토3부B', day:'토', time:'13:00~16:00'},
-      {name:'일',   day:'일', time:'12:30~16:30'},
+      {name:'수요단과',     day:'수', time:'5:00~10:00'},
+      {name:'중1특별(2-1)', day:'금', time:'7:00~10:00'},
+      {name:'금요단과',     day:'금', time:'7:00~10:00'},
+      {name:'토1부A',       day:'토', time:'9:30~12:30'},
+      {name:'토1부B',       day:'토', time:'9:30~12:30'},
+      {name:'토2부',        day:'토', time:'12:00~15:00'},
+      {name:'토3부A',       day:'토', time:'13:00~16:00'},
+      {name:'토3부B',       day:'토', time:'13:00~16:00'},
+      {name:'일요단과',     day:'일', time:'12:30~16:30'},
+      {name:'일2부',        day:'일', time:'19:00~22:00'},
+      {name:'중1특별(3-1)', day:'일', time:'19:00~22:00'},
     ]
   },
   '프리미엄관': [
@@ -2653,8 +2673,15 @@ window.createPLTerm = async function() {
   if(pl_db.terms.find(t=>t.name===name)){showToast('⚠️ 이미 존재하는 분기입니다');return;}
   // 영재관은 elementary+secondary 합산, 프리미엄관은 배열 그대로
   const def = PL_DEFAULT_CLASSES[venue];
-  const rawClasses = Array.isArray(def) ? def : [...(def.elementary||[]), ...(def.secondary||[])];
-  const defaultClasses = rawClasses.map(c => ({ id: uid(), name: c.name, day: c.day, time: c.time, teacher: '' }));
+  const rawClasses = Array.isArray(def) ? def : [
+    ...(def.elementary||[]).map(c => ({ ...c, plType: 'elementary' })),
+    ...(def.secondary||[]).map(c => ({ ...c, plType: 'secondary' }))
+  ];
+  const defaultClasses = rawClasses.map(c => {
+    const o = { id: uid(), name: c.name, day: c.day, time: c.time, teacher: '' };
+    if (c.plType) o.plType = c.plType;  // 초등/중등 표 구분을 이름·시간 추측 대신 명시
+    return o;
+  });
   pl_db.terms.push({id:uid(), name, venue, classes: defaultClasses});
   await savePLDB(); render(); showToast(`✅ '${name}' 생성 완료 (기본 반 ${defaultClasses.length}개 자동 추가)`,'success');
 };
@@ -2997,14 +3024,7 @@ window.addStudentFromClassEdit = async function(classId, termId) {
 
   // 2번: 현재 분기 내 동일 학생(이름+학년+학교) 체크
   const term = getPLTerm(termId);
-  const termClassIds = new Set((term?.classes||[]).map(c=>c.id));
-  const existingStu = Object.entries(pl_db.students).find(([sid, stu]) => {
-    if (stu.name !== name) return false;
-    if (grade && stu.grade && stu.grade !== grade) return false;
-    if (school && stu.school && stu.school !== school) return false;
-    // 이 분기에 속한 학생인지 확인
-    return [...termClassIds].some(cid => pl_db.classes[cid]?.students?.some(s=>s.id===sid));
-  });
+  const existingStu = findExistingPLStudent(name, grade, school, termId);
 
   let sid;
   if (existingStu) {
@@ -3038,11 +3058,10 @@ window.copyPLStudents=async function(){
   if(!fromId||!toId){showToast('⚠️ 원본 반과 대상 반을 선택해주세요');return;}
   const fromData=getPLClassData(fromId); const toData=getPLClassData(toId);
   const existNames=new Set(toData.students.map(s=>s.name));
+  // 전분기 학생도 같은 studentId를 그대로 사용 (예전엔 새 ID를 만들어 발송목록·채널링크 연동이 끊겼음)
   const news=fromData.students.filter(s=>s.name&&!existNames.has(s.name)).map(s=>{
-    const orig=pl_db.students[s.id]||{};
-    const nid='pl_'+uid();
-    pl_db.students[nid]={name:s.name,school:orig.school||'',grade:orig.grade||'',course:'',period:'',endMonth:'',memo:'',sentLog:{},history:[]};
-    return {id:nid,name:s.name};
+    if(!pl_db.students[s.id]) pl_db.students[s.id]={name:s.name,school:'',grade:'',course:'',period:'',endMonth:'',memo:'',sentLog:{},history:[]};
+    return {id:s.id,name:s.name};
   });
   toData.students.push(...news);
   await savePLDB(); render(); showToast(`✅ ${news.length}명 복사 완료`,'success');
@@ -3227,13 +3246,7 @@ window.confirmPLAddStudent=async function(){
   // 2번: 현재 분기 내 동일 학생 체크
   const termId=view.plTermId;
   const term=getPLTerm(termId);
-  const termClassIds=new Set((term?.classes||[]).map(c=>c.id));
-  const existingStu=Object.entries(pl_db.students).find(([sid,stu])=>{
-    if(stu.name!==name) return false;
-    if(grade&&stu.grade&&stu.grade!==grade) return false;
-    if(school&&stu.school&&stu.school!==school) return false;
-    return [...termClassIds].some(cid=>pl_db.classes[cid]?.students?.some(s=>s.id===sid));
-  });
+  const existingStu=findExistingPLStudent(name, grade, school, termId);
 
   let sid;
   if(existingStu){
