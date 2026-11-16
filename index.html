@@ -735,7 +735,7 @@
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
 import {
-  getFirestore, doc, setDoc, onSnapshot
+  getFirestore, doc, setDoc, getDoc, onSnapshot
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
 const firebaseConfig = {
@@ -768,10 +768,74 @@ let isInitialized = false;
    FIRESTORE 저장 / 실시간 수신
 =========================================================== */
 
-async function saveDB() {
+/* ===========================================================
+   데이터 보호 장치 (2026-11 PL 데이터 소실 재발 방지)
+   1) 서버 데이터를 받기 전에는 저장 금지
+   2) 한 번에 데이터가 크게 줄어드는 저장은 차단 (분기/반 삭제 버튼만 예외)
+   3) 요일별 자동 백업: bloomath/pl_backup_0~6, bloomath/main_backup_0~6
+=========================================================== */
+let mainBaseline = null;   // 마지막으로 서버에서 확인한 MATHMILE 규모
+let plBaseline = null;     // 마지막으로 서버에서 확인한 PL 규모
+
+function mainStats(d) {
+  const qs = d.quarters || [];
+  const cls = qs.flatMap(q => q.classes || []);
+  return {
+    quarters: qs.length,
+    classes: cls.length,
+    students: cls.reduce((a, c) => a + (c.students || []).length, 0),
+    messages: cls.reduce((a, c) => a + (c.messages || []).length, 0)
+  };
+}
+function plStats(d) {
+  const st = Object.values(d.students || {});
+  return {
+    terms: (d.terms || []).length,
+    classes: (d.terms || []).reduce((a, t) => a + (t.classes || []).length, 0),
+    students: st.length,
+    history: st.reduce((a, s) => a + (s.history || []).length, 0)
+  };
+}
+// 큰 폭 감소 판정: 이전보다 minDrop 이상, 그리고 절반 이상 줄어든 항목
+function bigDrops(before, after, rules) {
+  const out = [];
+  for (const [k, label, minDrop] of rules) {
+    const b = before[k] || 0, a = after[k] || 0;
+    if (b - a >= minDrop && a <= b / 2) out.push(`${label} ${b}→${a}`);
+  }
+  return out;
+}
+function blockSave(kind, reason) {
+  console.error(`[${kind} 저장 차단]`, reason);
+  flashSaveIndicator('error');
+  alert(`⚠️ ${kind} 데이터 보호를 위해 저장을 막았습니다.\n\n${reason}\n\n페이지를 새로고침(F5)한 뒤 다시 시도해주세요.\n계속 같은 메시지가 나오면 관리자에게 알려주세요.`);
+}
+
+async function backupOnce(kind, data) {
+  // 요일별 슬롯(0=일~6=토)에 하루 한 번만 백업. 직전 6일치가 항상 남음.
+  try {
+    const now = new Date();
+    const today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+    const ref = doc(firestore, 'bloomath', `${kind}_backup_${now.getDay()}`);
+    const snap = await getDoc(ref);
+    if (snap.exists() && snap.data().backupDate === today) return;
+    await setDoc(ref, { backupDate: today, backedUpAt: now.toISOString(), data });
+    console.log(`${kind} 백업 완료 (${today})`);
+  } catch (e) {
+    console.warn(`${kind} 백업 실패:`, e);
+  }
+}
+
+async function saveDB(opts = {}) {
+  if (!mainBaseline) { blockSave('MATHMILE', '아직 서버에서 데이터를 불러오지 못했습니다.'); return; }
+  const drops = bigDrops(mainBaseline, mainStats(db), [
+    ['quarters', '분기', 1], ['classes', '반', 2], ['students', '학생', 5], ['messages', '발송문자', 20]
+  ]);
+  if (drops.length && !opts.allowShrink) { blockSave('MATHMILE', '저장하면 데이터가 크게 줄어듭니다: ' + drops.join(', ')); return; }
   isSaving = true;
   try {
     await setDoc(DB_DOC, { quarters: db.quarters });
+    mainBaseline = mainStats(db);
     flashSaveIndicator('saved');
   } catch(e) {
     console.error('저장 오류:', e);
@@ -789,8 +853,10 @@ function startRealtimeSync() {
     } else {
       db = { quarters: [] };
     }
+    mainBaseline = mainStats(db);
     if (!isInitialized) {
       isInitialized = true;
+      if (snap.exists() && db.quarters.length) backupOnce('main', { quarters: db.quarters });
       hideLoading();
       view = { page: 'main' };
       render();
@@ -890,6 +956,16 @@ function render() {
   const isPL = view.page && view.page.startsWith('pl');
   if (statsBtn) statsBtn.style.display = isBloomath ? '' : 'none';
   if (plRosterBtn) plRosterBtn.style.display = isPL ? '' : 'none';
+
+  // PL 데이터를 서버에서 받기 전에는 PL 화면을 열지 않음 (빈 화면에서 저장 → 전체 덮어쓰기 방지)
+  if (isPL && !plBaseline) {
+    app.innerHTML = `<div class="empty-state" style="padding:60px 20px;text-align:center;">
+      <div style="font-size:36px;margin-bottom:12px;">🔄</div>
+      <div style="font-weight:600;margin-bottom:6px;">PL 데이터를 불러오는 중입니다...</div>
+      <div style="font-size:13px;color:var(--text-secondary);">잠시만 기다려주세요. 계속 이 화면이면 새로고침(F5) 해주세요.</div>
+    </div>`;
+    return;
+  }
 
   if (view.page === 'main') app.innerHTML = renderMainHub();
   else if (view.page === 'home') app.innerHTML = renderHome();
@@ -1034,7 +1110,7 @@ window.deleteQuarter = function(qid) {
   showConfirm(`'${q ? q.name : ''}' 분기와 모든 반/학생 데이터가 삭제됩니다.
 정말 삭제할까요?`, async () => {
     db.quarters = db.quarters.filter(x => x.id !== qid);
-    await saveDB();
+    await saveDB({ allowShrink: true });
     render();
     showToast('🗑️ 삭제되었습니다');
   });
@@ -1214,7 +1290,7 @@ window.deleteClass = function(qid, cid) {
   showConfirm(`'${c ? c.name : ''}' 반과 모든 학생/문자 데이터가 삭제됩니다.
 정말 삭제할까요?`, async () => {
     q.classes = q.classes.filter(x => x.id !== cid);
-    await saveDB();
+    await saveDB({ allowShrink: true });
     render();
     showToast('🗑️ 삭제되었습니다');
   });
@@ -2340,10 +2416,16 @@ let isPLInitialized = false;
 
 function loadPLDB() { return { terms: [], classes: {}, students: {} }; }
 
-async function savePLDB() {
+async function savePLDB(opts = {}) {
+  if (!plBaseline || !Array.isArray(pl_db.terms)) { blockSave('PL', '아직 서버에서 PL 데이터를 불러오지 못했습니다.'); return; }
+  const drops = bigDrops(plBaseline, plStats(pl_db), [
+    ['terms', '분기', 1], ['classes', '반', 3], ['students', '학생', 5], ['history', '발송이력', 10]
+  ]);
+  if (drops.length && !opts.allowShrink) { blockSave('PL', '저장하면 데이터가 크게 줄어듭니다: ' + drops.join(', ')); return; }
   isPLSaving = true;
   try {
     await setDoc(PL_DOC, { terms: pl_db.terms, classes: pl_db.classes, students: pl_db.students });
+    plBaseline = plStats(pl_db);
     flashSaveIndicator('saved');
   } catch(e) {
     console.error('PL 저장 오류:', e);
@@ -2383,20 +2465,32 @@ async function migratePLSendHistory() {
 
 function startPLRealtimeSync() {
   onSnapshot(PL_DOC, (snap) => {
-    if (isPLSaving) return;
+    // 내 저장의 로컬 반영(echo)만 건너뛰고, 다른 사람의 변경은 저장 직후라도 반영
+    // (예전엔 저장 직후 0.8초간 다른 사람 변경을 버려서 덮어쓰기가 생겼음)
+    if (isPLSaving && snap.metadata.hasPendingWrites) return;
     if (snap.exists()) {
       const r = snap.data();
       pl_db = { terms: r.terms||[], classes: r.classes||{}, students: r.students||{} };
     } else {
+      // 문서가 없어도 빈 문서를 자동으로 만들지 않음
       pl_db = { terms: [], classes: {}, students: {} };
-      setDoc(PL_DOC, { terms:[], classes:{}, students:{} }).catch(e=>console.error(e));
     }
+    plBaseline = plStats(pl_db);
     if (!isPLInitialized) {
       isPLInitialized = true;
+      if (snap.exists() && pl_db.terms.length) backupOnce('pl', { terms: pl_db.terms, classes: pl_db.classes, students: pl_db.students });
       // 기존 sendHistory → student.history 자동 마이그레이션
       migratePLSendHistory();
+      // 로딩 안내를 보고 있던 PL 화면을 실제 화면으로 교체
+      if (view.page && view.page.startsWith('pl')) render();
+    } else if (isPLSaving) {
+      return; // 내가 방금 저장한 내용 → 입력 중인 화면은 다시 그리지 않음
     } else if (view.page && view.page.startsWith('pl')) { silentPLRefresh(); }
-  }, (err) => { console.error('PL 동기화 오류:', err); isPLInitialized = true; });
+  }, (err) => {
+    // 오류 시 빈 데이터로 진행하지 않음 → plBaseline이 없으면 저장이 막힘
+    console.error('PL 동기화 오류:', err);
+    showToast('⚠️ PL 데이터 연결 오류. 새로고침(F5) 해주세요.');
+  });
 }
 
 function silentPLRefresh() {
@@ -2539,7 +2633,7 @@ window.deletePLTerm=function(tid){
   const t=getPLTerm(tid);
   showConfirm(`'${t?.name}' 분기를 삭제할까요?`, async()=>{
     pl_db.terms=pl_db.terms.filter(x=>x.id!==tid);
-    await savePLDB(); render(); showToast('🗑️ 삭제됨');
+    await savePLDB({ allowShrink: true }); render(); showToast('🗑️ 삭제됨');
   });
 };
 
@@ -2801,7 +2895,7 @@ window.deletePLClass=function(termId,classId){
   const t=getPLTerm(termId); const c=t?.classes.find(x=>x.id===classId);
   showConfirm(`'${c?.name}' 반을 삭제할까요?`,async()=>{
     t.classes=t.classes.filter(x=>x.id!==classId);
-    await savePLDB(); view={page:'pl-terms',plTermId:termId}; render(); showToast('🗑️ 삭제됨');
+    await savePLDB({ allowShrink: true }); view={page:'pl-terms',plTermId:termId}; render(); showToast('🗑️ 삭제됨');
   });
 };
 window.editPLClass=function(termId,classId){
@@ -3150,7 +3244,7 @@ window.selectPLStudent=function(sid){
     // students 맵에 등록
     pl_db.students[sid]={name:found.name,school:'',grade:'',history:[],sentLog:{}};
     stu=pl_db.students[sid];
-    savePLDB();
+    // 탭 클릭만으로 저장하지 않음 (다음 실제 저장 때 함께 저장됨)
   }
   const classId=view.plClassId; const data=getPLClassData(classId);
   renderPLStudentTabs();
@@ -4065,18 +4159,15 @@ ${AI_COMMENT_EXAMPLES}`;
 startRealtimeSync();
 startPLRealtimeSync();
 
-// 안전장치: 5초 후에도 로딩 중이면 강제로 홈 화면 표시
+// 5초 후에도 로딩 중이면 안내만 표시 (예전처럼 빈 데이터로 강제 진입하지 않음 → 빈 데이터 덮어쓰기 방지)
+// 연결되면 실시간 동기화가 자동으로 화면을 띄움
 setTimeout(() => {
   if (!isInitialized) {
-    console.warn('Firebase 연결 지연 — 강제 진입');
-    db = { quarters: [] };
-    pl_db = { classes: {}, students: {} };
-    isInitialized = true;
-    isPLInitialized = true;
-    hideLoading();
-    view = { page: 'main' };
-    render();
-    showToast('⚠️ 연결이 지연되고 있습니다. 새로고침을 시도해주세요.');
+    console.warn('Firebase 연결 지연');
+    const el = document.getElementById('loadingScreen');
+    if (el) el.insertAdjacentHTML('beforeend',
+      `<div style="margin-top:20px;font-size:13px;color:#ef4444;">⚠️ 연결이 지연되고 있습니다. 인터넷 연결을 확인하고 새로고침해주세요.</div>
+       <button onclick="location.reload()" style="margin-top:12px;padding:8px 18px;border-radius:8px;border:1px solid var(--border,#ddd);background:#fff;cursor:pointer;">🔄 새로고침</button>`);
   }
 }, 5000);
 </script>
