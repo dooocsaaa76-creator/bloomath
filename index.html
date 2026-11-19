@@ -735,7 +735,7 @@
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
 import {
-  getFirestore, doc, setDoc, getDoc, onSnapshot
+  getFirestore, doc, setDoc, getDoc, updateDoc, deleteField, FieldPath, onSnapshot
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
 const firebaseConfig = {
@@ -1108,6 +1108,19 @@ function render() {
       <div style="font-size:13px;color:var(--text-secondary);">잠시만 기다려주세요. 계속 이 화면이면 새로고침(F5) 해주세요.</div>
     </div>`;
     return;
+  }
+  // 반·전체명단·학생 화면은 그 분기의 발송이력까지 받은 뒤에 열기
+  if (isPL) {
+    plNeededHistTerms().filter(tid => !plHistTermsLoaded.has(tid)).forEach(ensurePLHist);
+    const missing = plNeededHistTerms().filter(tid => !plHistTermsLoaded.has(tid));
+    if (missing.length) {
+      app.innerHTML = `<div class="empty-state" style="padding:60px 20px;text-align:center;">
+        <div style="font-size:36px;margin-bottom:12px;">🔄</div>
+        <div style="font-weight:600;margin-bottom:6px;">발송 이력을 불러오는 중입니다...</div>
+        <div style="font-size:13px;color:var(--text-secondary);">잠시만 기다려주세요.</div>
+      </div>`;
+      return;
+    }
   }
 
   if (view.page === 'main') app.innerHTML = renderMainHub();
@@ -2573,14 +2586,261 @@ async function savePLDB(opts = {}) {
   if (drops.length && !opts.allowShrink) { blockSave('PL', '저장하면 데이터가 크게 줄어듭니다: ' + drops.join(', ')); return; }
   isPLSaving = true;
   try {
-    await setDoc(PL_DOC, { terms: pl_db.terms, classes: pl_db.classes, students: pl_db.students });
+    await writePLChanges();
     plBaseline = plStats(pl_db);
     flashSaveIndicator('saved');
   } catch(e) {
     console.error('PL 저장 오류:', e);
     flashSaveIndicator('error');
+    if (e && e.blocked) blockSave('PL', e.message);
   }
   setTimeout(() => { isPLSaving = false; }, 800);
+}
+
+/* ===========================================================
+   PL 분리 저장 구조 (2026-11 변경)
+   - bloomath/pl2_meta          : { terms:[분기·반 정의], version:2 }
+   - bloomath/pl2_students      : { students:{ sid:{이름·학교·학년·채널링크 등} } }   ← 발송이력 없음
+   - bloomath/pl2_term_<분기ID> : { classes:{ classId:{students, sessions, currentDate} } }
+   - bloomath/pl2_hist_<반ID>   : { termId, entries:[발송이력], sentLog:{ sid:{ '반ID_날짜':true } } }
+   - 앱 안에서는 예전처럼 pl_db = { terms, classes, students(+history, sentLog) } 하나로 다룸
+   - 저장 시 바뀐 문서·바뀐 학생/반 항목만 씀 → 한 사람의 저장이 전체를 덮어쓸 수 없음
+   - 발송이력은 그 분기 화면(반·전체명단·학생)을 열 때 불러옴
+   - 예전 bloomath/pl 문서는 이전 시점 그대로 보관 (더 이상 읽거나 쓰지 않음)
+=========================================================== */
+const PL2_META = doc(firestore, 'bloomath', 'pl2_meta');
+const PL2_STU  = doc(firestore, 'bloomath', 'pl2_students');
+const pl2TermDoc = tid => doc(firestore, 'bloomath', 'pl2_term_' + tid);
+const pl2HistDoc = cid => doc(firestore, 'bloomath', 'pl2_hist_' + cid);
+// 서버와 마지막으로 맞춘 내용(캐시). 없으면 = 아직 못 불러옴
+const plc = { meta: null, students: null, studentsExists: false, terms: {}, hist: {} };
+const plSub = { term: {}, hist: {} };          // 구독 해제 함수
+const plHistTermsLoaded = new Set();            // 발송이력을 다 불러온 분기
+const plHistTermsLoading = new Set();
+let plMigrating = false;
+const plClone = x => JSON.parse(JSON.stringify(x === undefined ? null : x));
+const plStuInfo = s => { const o = { ...s }; delete o.history; delete o.sentLog; return o; };
+const plSame = (a, b) => JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b);
+
+function plReady() {
+  return !!(plc.meta && plc.students && (plc.meta.terms || []).every(t => plc.terms[t.id]));
+}
+
+// 캐시 → pl_db 다시 만들기 (학생별 history·sentLog는 불러온 반별 이력에서 합침)
+function rebuildPL() {
+  const terms = plClone(plc.meta.terms || []);
+  const students = {};
+  Object.entries(plc.students || {}).forEach(([sid, s]) => { students[sid] = { ...plClone(s), history: [], sentLog: {} }; });
+  const classes = {};
+  terms.forEach(t => Object.entries((plc.terms[t.id] || {}).classes || {}).forEach(([cid, c]) => { classes[cid] = plClone(c); }));
+  Object.values(plc.hist).forEach(h => {
+    (h.entries || []).forEach(e => { const st = students[e.studentId]; if (st) st.history.push(plClone(e)); });
+    Object.entries(h.sentLog || {}).forEach(([sid, keys]) => { const st = students[sid]; if (st) Object.assign(st.sentLog, keys); });
+  });
+  pl_db = { terms, classes, students };
+  plBaseline = plStats(pl_db);
+}
+
+// 반 하나의 발송이력 문서 내용을 pl_db에서 계산
+function plHistDocFor(cid, termId) {
+  const entries = [], sentLog = {};
+  Object.entries(pl_db.students).forEach(([sid, s]) => {
+    (s.history || []).forEach(h => { if (h.classId === cid) entries.push(h); });
+    Object.entries(s.sentLog || {}).forEach(([k, v]) => { if (v && k.startsWith(cid + '_')) (sentLog[sid] ||= {})[k] = true; });
+  });
+  // 명부에서 삭제된 학생의 이력은 지우지 않고 그대로 보존
+  const prev = plc.hist[cid];
+  if (prev) {
+    (prev.entries || []).forEach(e => { if (!pl_db.students[e.studentId]) entries.push(e); });
+    Object.entries(prev.sentLog || {}).forEach(([sid, keys]) => { if (!pl_db.students[sid]) sentLog[sid] = keys; });
+  }
+  entries.sort((a, b) => (a.sentAt || 0) - (b.sentAt || 0));
+  return { termId, entries, sentLog };
+}
+
+async function writePLChanges() {
+  const tasks = [];
+  const metaTermIds = new Set((plc.meta.terms || []).map(t => t.id));
+
+  // ① 학생 명부: 바뀐 학생만 (삭제된 학생은 항목 삭제)
+  const stuArgs = [], stuNew = {};
+  Object.entries(pl_db.students).forEach(([sid, s]) => {
+    const info = plStuInfo(s); stuNew[sid] = info;
+    if (!plSame(info, plc.students[sid])) stuArgs.push(new FieldPath('students', sid), plClone(info));
+  });
+  Object.keys(plc.students).forEach(sid => { if (!pl_db.students[sid]) stuArgs.push(new FieldPath('students', sid), deleteField()); });
+  if (!plc.studentsExists) tasks.push(setDoc(PL2_STU, { students: plClone(stuNew) }).then(() => { plc.studentsExists = true; plc.students = plClone(stuNew); }));
+  else if (stuArgs.length) tasks.push(updateDoc(PL2_STU, ...stuArgs).then(() => { plc.students = plClone(stuNew); }));
+
+  // ② 분기별 반 명단: 불러온 분기는 바뀐 반만, 새로 만든 분기는 통째로
+  pl_db.terms.forEach(t => {
+    const isNew = !metaTermIds.has(t.id) && !plSub.term[t.id];
+    const cached = plc.terms[t.id];
+    if (!isNew && !cached) return;  // 아직 못 불러온 분기는 절대 쓰지 않음
+    const want = {};
+    t.classes.forEach(c => { if (pl_db.classes[c.id]) want[c.id] = plClone(pl_db.classes[c.id]); });
+    if (isNew || !cached.exists) {
+      const merged = { ...((cached && cached.classes) || {}), ...want };
+      tasks.push(setDoc(pl2TermDoc(t.id), { classes: merged }).then(() => { plc.terms[t.id] = { exists: true, classes: plClone(merged) }; }));
+    } else {
+      const args = [];
+      Object.entries(want).forEach(([cid, c]) => { if (!plSame(c, cached.classes[cid])) args.push(new FieldPath('classes', cid), c); });
+      if (args.length) tasks.push(updateDoc(pl2TermDoc(t.id), ...args).then(() => { Object.assign(cached.classes, plClone(want)); }));
+    }
+  });
+
+  // ③ 반별 발송이력: 이력을 다 불러온 분기(또는 새 분기)의 반만
+  pl_db.terms.forEach(t => {
+    const isNew = !metaTermIds.has(t.id) && !plSub.term[t.id];
+    if (!isNew && !plHistTermsLoaded.has(t.id)) return;
+    t.classes.forEach(c => {
+      if (plSub.hist[c.id] && !plc.hist[c.id]) return;  // 구독 중인데 아직 못 받은 반
+      const d = plHistDocFor(c.id, t.id);
+      const prev = plc.hist[c.id] || { entries: [], sentLog: {} };
+      if (plSame(d.entries, prev.entries || []) && plSame(d.sentLog, prev.sentLog || {})) return;
+      const bytes = new TextEncoder().encode(JSON.stringify(d)).length;
+      if (bytes > 950000) { const e = new Error(`'${c.name}' 반 발송이력이 1MB 한도를 넘습니다 (${Math.round(bytes/1024)}KB). 관리자에게 알려주세요.`); e.blocked = true; throw e; }
+      if (bytes > 800000) showToast(`⚠️ '${c.name}' 반 발송이력이 ${Math.round(bytes/1024)}KB입니다. 1MB 한도에 가까워지고 있어요.`);
+      tasks.push(setDoc(pl2HistDoc(c.id), plClone(d)).then(() => { plc.hist[c.id] = plClone(d); }));
+    });
+  });
+
+  await Promise.all(tasks);
+
+  // ④ 분기 목록(분기·반 정의)이 바뀌었으면 마지막에 저장
+  if (!plSame(pl_db.terms, plc.meta.terms || [])) {
+    const terms = plClone(pl_db.terms);
+    await setDoc(PL2_META, { ...plc.meta, terms, version: 2 });
+    plc.meta = { ...plc.meta, terms, version: 2 };
+  }
+  syncPLTermSubs();
+  pl_db.terms.forEach(t => { if (plHistTermsLoaded.has(t.id)) syncPLHistSubs(t.id); });
+}
+
+function syncPLTermSubs() {
+  const ids = new Set((plc.meta.terms || []).map(t => t.id));
+  ids.forEach(tid => {
+    if (plSub.term[tid]) return;
+    plSub.term[tid] = onSnapshot(pl2TermDoc(tid), (snap) => {
+      if (snap.metadata.hasPendingWrites) return;
+      if (!snap.exists() && snap.metadata.fromCache) return;
+      plc.terms[tid] = { exists: snap.exists(), classes: snap.exists() ? (snap.data().classes || {}) : {} };
+      onPLCacheChanged();
+    }, plSyncError);
+  });
+  Object.keys(plSub.term).forEach(tid => { if (!ids.has(tid)) { plSub.term[tid](); delete plSub.term[tid]; } });
+}
+
+function syncPLHistSubs(termId) {
+  const t = (plc.meta.terms || []).find(x => x.id === termId); if (!t) return;
+  t.classes.forEach(c => {
+    if (plSub.hist[c.id]) return;
+    plSub.hist[c.id] = onSnapshot(pl2HistDoc(c.id), (snap) => {
+      if (snap.metadata.hasPendingWrites) return;
+      if (!snap.exists() && snap.metadata.fromCache) return;
+      const d = snap.exists() ? snap.data() : {};
+      plc.hist[c.id] = { termId, entries: d.entries || [], sentLog: d.sentLog || {} };
+      checkPLHistLoaded(termId);
+      onPLCacheChanged();
+    }, plSyncError);
+  });
+}
+
+// 분기 화면을 열 때 그 분기의 반별 발송이력을 불러옴
+function ensurePLHist(termId) {
+  if (!termId || plHistTermsLoaded.has(termId) || plHistTermsLoading.has(termId) || !plc.meta) return;
+  plHistTermsLoading.add(termId);
+  syncPLHistSubs(termId);
+  checkPLHistLoaded(termId);
+}
+function checkPLHistLoaded(termId) {
+  if (plHistTermsLoaded.has(termId)) return;
+  const t = (plc.meta.terms || []).find(x => x.id === termId); if (!t) return;
+  if (!t.classes.every(c => plc.hist[c.id])) return;
+  plHistTermsLoaded.add(termId); plHistTermsLoading.delete(termId);
+  t.classes.forEach(c => { const h = plc.hist[c.id]; if (h && h.entries.length) backupOnce('pl2_hist_' + c.id, h); });
+  if (plReady()) rebuildPL();
+  if (view.page && view.page.startsWith('pl')) render();
+}
+
+function plSyncError(err) {
+  console.error('PL 동기화 오류:', err);
+  showToast('⚠️ PL 데이터 연결 오류. 새로고침(F5) 해주세요.');
+}
+
+function onPLCacheChanged() {
+  if (!plReady()) return;
+  rebuildPL();
+  if (!isPLInitialized) {
+    isPLInitialized = true;
+    backupOnce('pl2_meta', plc.meta);
+    backupOnce('pl2_students', { students: plc.students });
+    (plc.meta.terms || []).forEach(t => backupOnce('pl2_term_' + t.id, { classes: plc.terms[t.id].classes }));
+    if (view.page && view.page.startsWith('pl')) render();
+  } else if (!isPLSaving && view.page && view.page.startsWith('pl')) {
+    silentPLRefresh();
+  }
+}
+
+// PL 화면별로 필요한 분기 (발송이력을 불러와야 하는 분기)
+function plNeededHistTerms() {
+  if (view.page === 'pl-class' || view.page === 'pl-roster') return view.plTermId ? [view.plTermId] : [];
+  if (view.page === 'pl-student') {
+    const sid = view.plStudentId;
+    return pl_db.terms.filter(t => t.classes.some(c => pl_db.classes[c.id]?.students?.some(s => s.id === sid))).map(t => t.id);
+  }
+  return [];
+}
+
+// 예전 bloomath/pl 한 문서 → 분리 구조로 1회 이전
+async function migratePLToSplit() {
+  if (plMigrating) return;
+  plMigrating = true;
+  try {
+    const old = await getDoc(PL_DOC);
+    const r = old.exists() ? old.data() : {};
+    const terms = r.terms || [], oldClasses = r.classes || {}, oldStudents = r.students || {};
+    const students = {};
+    Object.entries(oldStudents).forEach(([sid, s]) => { students[sid] = plStuInfo(s); });
+    const termOf = {};
+    terms.forEach(t => t.classes.forEach(c => { termOf[c.id] = t.id; }));
+    // 반별 발송이력 (분기에 없는 옛 반 이력도 반 ID별로 보관)
+    const hist = {};
+    Object.entries(oldStudents).forEach(([sid, s]) => {
+      (s.history || []).forEach(h => { const cid = h.classId; if (!cid) return; (hist[cid] ||= { termId: termOf[cid] || '', entries: [], sentLog: {} }).entries.push({ ...h, studentId: h.studentId || sid }); });
+      Object.entries(s.sentLog || {}).forEach(([k, v]) => {
+        if (!v) return;
+        const cid = Object.keys(termOf).find(c => k.startsWith(c + '_')) || Object.keys(hist).find(c => k.startsWith(c + '_'));
+        if (cid) ((hist[cid] ||= { termId: termOf[cid] || '', entries: [], sentLog: {} }).sentLog[sid] ||= {})[k] = true;
+      });
+    });
+    await setDoc(PL2_STU, { students });
+    for (const t of terms) {
+      const classes = {};
+      t.classes.forEach(c => {
+        const d = oldClasses[c.id]; if (!d) return;
+        classes[c.id] = { students: Array.isArray(d.students) ? d.students : Object.values(d.students || {}),
+          sessions: Array.isArray(d.sessions) ? d.sessions : Object.values(d.sessions || {}), currentDate: d.currentDate || '' };
+      });
+      await setDoc(pl2TermDoc(t.id), { classes });
+      plc.terms[t.id] = { exists: true, classes };
+    }
+    for (const [cid, h] of Object.entries(hist)) {
+      h.entries.sort((a, b) => (a.sentAt || 0) - (b.sentAt || 0));
+      await setDoc(pl2HistDoc(cid), h);
+    }
+    const meta = { terms, version: 2, migratedAt: new Date().toISOString(), migratedFrom: 'bloomath/pl' };
+    await setDoc(PL2_META, meta);
+    plc.students = students; plc.studentsExists = true; plc.meta = meta;
+    syncPLTermSubs();
+    console.log(`PL 분리 저장으로 이전 완료 (분기 ${terms.length}, 학생 ${Object.keys(students).length}, 이력 문서 ${Object.keys(hist).length})`);
+    onPLCacheChanged();
+  } catch (e) {
+    console.error('PL 이전 오류:', e);
+    showToast('⚠️ PL 데이터 이전 중 오류: ' + e.message + ' — 새로고침(F5) 해주세요.');
+  } finally {
+    plMigrating = false;
+  }
 }
 
 /* 기존 sendHistory → student.history 마이그레이션 */
@@ -2613,33 +2873,27 @@ async function migratePLSendHistory() {
 }
 
 function startPLRealtimeSync() {
-  onSnapshot(PL_DOC, (snap) => {
-    // 내 저장의 로컬 반영(echo)만 건너뛰고, 다른 사람의 변경은 저장 직후라도 반영
-    // (예전엔 저장 직후 0.8초간 다른 사람 변경을 버려서 덮어쓰기가 생겼음)
-    if (isPLSaving && snap.metadata.hasPendingWrites) return;
-    if (snap.exists()) {
-      const r = snap.data();
-      pl_db = { terms: r.terms||[], classes: r.classes||{}, students: r.students||{} };
-    } else {
-      // 문서가 없어도 빈 문서를 자동으로 만들지 않음
-      pl_db = { terms: [], classes: {}, students: {} };
+  // 내 저장의 로컬 반영(echo)만 건너뛰고, 다른 사람의 변경은 저장 직후라도 반영
+  // 오류 시 빈 데이터로 진행하지 않음 → plBaseline이 없으면 저장이 막힘
+  onSnapshot(PL2_STU, (snap) => {
+    if (snap.metadata.hasPendingWrites) return;
+    if (!snap.exists() && snap.metadata.fromCache) return;
+    plc.studentsExists = snap.exists();
+    plc.students = snap.exists() ? (snap.data().students || {}) : {};
+    onPLCacheChanged();
+  }, plSyncError);
+  onSnapshot(PL2_META, (snap) => {
+    if (snap.metadata.hasPendingWrites) return;
+    if (!snap.exists()) {
+      if (snap.metadata.fromCache) return;
+      migratePLToSplit();  // 분리 구조 문서가 없으면 = 아직 이전 전
+      return;
     }
-    plBaseline = plStats(pl_db);
-    if (!isPLInitialized) {
-      isPLInitialized = true;
-      if (snap.exists() && pl_db.terms.length) backupOnce('pl', { terms: pl_db.terms, classes: pl_db.classes, students: pl_db.students });
-      // 기존 sendHistory → student.history 자동 마이그레이션
-      migratePLSendHistory();
-      // 로딩 안내를 보고 있던 PL 화면을 실제 화면으로 교체
-      if (view.page && view.page.startsWith('pl')) render();
-    } else if (isPLSaving) {
-      return; // 내가 방금 저장한 내용 → 입력 중인 화면은 다시 그리지 않음
-    } else if (view.page && view.page.startsWith('pl')) { silentPLRefresh(); }
-  }, (err) => {
-    // 오류 시 빈 데이터로 진행하지 않음 → plBaseline이 없으면 저장이 막힘
-    console.error('PL 동기화 오류:', err);
-    showToast('⚠️ PL 데이터 연결 오류. 새로고침(F5) 해주세요.');
-  });
+    plc.meta = snap.data();
+    syncPLTermSubs();
+    (plc.meta.terms || []).forEach(t => { if (plHistTermsLoaded.has(t.id) || plHistTermsLoading.has(t.id)) syncPLHistSubs(t.id); });
+    onPLCacheChanged();
+  }, plSyncError);
 }
 
 function silentPLRefresh() {
