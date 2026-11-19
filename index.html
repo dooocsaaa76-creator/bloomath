@@ -834,7 +834,28 @@ async function saveDB(opts = {}) {
   if (drops.length && !opts.allowShrink) { blockSave('MATHMILE', '저장하면 데이터가 크게 줄어듭니다: ' + drops.join(', ')); return; }
   isSaving = true;
   try {
-    await setDoc(DB_DOC, { quarters: db.quarters });
+    // ① 바뀐 분기 문서만 저장 (불러오기 전인 분기는 절대 쓰지 않음 → 빈 데이터 덮어쓰기 방지)
+    const writes = [];
+    for (const q of db.quarters) {
+      const subscribed = !!mmQuarterUnsub[q.id];
+      if (subscribed && !mmQuarterLoaded.has(q.id)) continue;
+      const classes = q.classes || [];
+      const js = JSON.stringify(classes);
+      if (mmSavedJson[q.id] === js) continue;
+      const bytes = new TextEncoder().encode(js).length;
+      if (bytes > 950000) { blockSave('MATHMILE', `'${q.name}' 데이터가 1MB 한도를 넘습니다 (${Math.round(bytes/1024)}KB). 관리자에게 알려주세요.`); isSaving = false; return; }
+      if (bytes > 800000) showToast(`⚠️ '${q.name}' 데이터가 ${Math.round(bytes/1024)}KB입니다. 1MB 한도에 가까워지고 있어요.`);
+      writes.push(setDoc(mmQuarterDoc(q.id), { name: q.name, classes }).then(() => { mmSavedJson[q.id] = js; }));
+    }
+    await Promise.all(writes);
+    // ② 분기 목록(이름·순서)이 바뀌었으면 목록 문서 저장
+    const metas = db.quarters.map(qMeta);
+    const ij = JSON.stringify(metas);
+    if (ij !== mmIndexSavedJson) {
+      await setDoc(MM_INDEX_DOC, { quarters: metas, version: 2 });
+      mmIndexSavedJson = ij;
+    }
+    syncQuarterSubscriptions(metas);
     mainBaseline = mainStats(db);
     flashSaveIndicator('saved');
   } catch(e) {
@@ -844,26 +865,119 @@ async function saveDB(opts = {}) {
   setTimeout(() => { isSaving = false; }, 800);
 }
 
-function startRealtimeSync() {
-  onSnapshot(DB_DOC, (snap) => {
-    if (isSaving) return;  // 내가 저장한 직후 반영은 무시
+/* ===========================================================
+   MATHMILE 분기별 저장 구조 (2026-11 변경)
+   - bloomath/mm_index      : { quarters: [{id, name}], version: 2 }  ← 분기 목록
+   - bloomath/mm_q_<분기ID> : { name, classes: [...] }                ← 분기별 반·학생·발송문자
+   - 문서 1개 한도(1MB)를 분기마다 따로 쓰므로 분기가 늘어도 용량 문제 없음
+   - 예전 bloomath/main 문서는 이전 직후 상태 그대로 보관 (더 이상 읽거나 쓰지 않음)
+   - 앱 안에서는 예전처럼 db.quarters[].classes[] 하나로 다룸
+=========================================================== */
+const MM_INDEX_DOC = doc(firestore, 'bloomath', 'mm_index');
+const mmQuarterDoc = qid => doc(firestore, 'bloomath', 'mm_q_' + qid);
+const mmQuarterUnsub = {};          // 분기ID → 구독 해제 함수
+const mmQuarterLoaded = new Set();  // 서버에서 한 번이라도 받은 분기
+const mmSavedJson = {};             // 분기ID → 마지막으로 서버와 맞춘 classes JSON
+let mmIndexSavedJson = null;
+let mmIndexLoaded = false;
+let mmMigrating = false;
+const qMeta = q => { const m = { ...q }; delete m.classes; return m; };
+
+function applyIndex(metas) {
+  // 기존 분기 객체는 재사용 (보고 있는 화면의 참조 유지), 이름 등만 갱신
+  const old = new Map(db.quarters.map(q => [q.id, q]));
+  db.quarters = metas.map(m => {
+    const q = old.get(m.id) || { classes: [] };
+    Object.keys(q).forEach(k => { if (k !== 'classes') delete q[k]; });
+    Object.assign(q, m);
+    if (!Array.isArray(q.classes)) q.classes = [];
+    return q;
+  });
+  mmIndexSavedJson = JSON.stringify(metas);
+  mmIndexLoaded = true;
+  syncQuarterSubscriptions(metas);
+}
+
+function syncQuarterSubscriptions(metas) {
+  const ids = new Set(metas.map(m => m.id));
+  metas.forEach(m => { if (!mmQuarterUnsub[m.id]) subscribeQuarter(m.id); });
+  Object.keys(mmQuarterUnsub).forEach(qid => {
+    if (!ids.has(qid)) { mmQuarterUnsub[qid](); delete mmQuarterUnsub[qid]; mmQuarterLoaded.delete(qid); }
+  });
+}
+
+function subscribeQuarter(qid) {
+  mmQuarterUnsub[qid] = onSnapshot(mmQuarterDoc(qid), (snap) => {
+    if (snap.metadata.hasPendingWrites) return;  // 내 저장의 로컬 반영은 무시
+    const q = db.quarters.find(x => x.id === qid);
     if (snap.exists()) {
-      const remote = snap.data();
-      db = { quarters: remote.quarters || [] };
-    } else {
-      db = { quarters: [] };
+      const classes = snap.data().classes || [];
+      if (q) q.classes = classes;
+      mmSavedJson[qid] = JSON.stringify(classes);
+    } else if (snap.metadata.fromCache) {
+      return;  // 오프라인 캐시의 "없음"은 믿지 않음
     }
-    mainBaseline = mainStats(db);
-    if (!isInitialized) {
-      isInitialized = true;
-      if (snap.exists() && db.quarters.length) backupOnce('main', { quarters: db.quarters });
-      hideLoading();
-      view = { page: 'main' };
-      render();
-    } else {
-      // 다른 사람이 수정했을 때 현재 페이지만 부드럽게 갱신
-      silentRefresh();
+    // 서버에 아직 문서가 없는 분기(방금 만든 분기)는 로컬 내용 유지
+    mmQuarterLoaded.add(qid);
+    afterMainSnapshot();
+  }, (err) => {
+    console.error('분기 동기화 오류:', qid, err);
+    showToast('⚠️ 동기화 오류: ' + err.message);
+  });
+}
+
+function afterMainSnapshot() {
+  // 분기 목록 + 모든 분기 문서를 받은 뒤에만 화면 진입·저장 허용
+  if (!mmIndexLoaded || !db.quarters.every(q => mmQuarterLoaded.has(q.id))) return;
+  mainBaseline = mainStats(db);
+  if (!isInitialized) {
+    isInitialized = true;
+    backupOnce('mm_index', { quarters: db.quarters.map(qMeta) });
+    db.quarters.forEach(q => { if ((q.classes || []).length) backupOnce('mm_q_' + q.id, { name: q.name, classes: q.classes }); });
+    hideLoading();
+    view = { page: 'main' };
+    render();
+  } else if (!isSaving) {
+    silentRefresh();  // 다른 사람이 수정했을 때 현재 페이지만 부드럽게 갱신
+  }
+}
+
+// 예전 bloomath/main 한 문서 → 분기별 문서로 1회 이전
+async function migrateMainToQuarters() {
+  if (mmMigrating) return;
+  mmMigrating = true;
+  try {
+    const old = await getDoc(DB_DOC);
+    const quarters = old.exists() ? (old.data().quarters || []) : [];
+    for (const q of quarters) {
+      await setDoc(mmQuarterDoc(q.id), { name: q.name, classes: q.classes || [] });
+      mmSavedJson[q.id] = JSON.stringify(q.classes || []);
+      mmQuarterLoaded.add(q.id);
     }
+    const metas = quarters.map(qMeta);
+    await setDoc(MM_INDEX_DOC, { quarters: metas, version: 2, migratedAt: new Date().toISOString(), migratedFrom: 'bloomath/main' });
+    db.quarters = quarters.map(q => ({ ...q, classes: q.classes || [] }));
+    applyIndex(metas);
+    console.log(`MATHMILE 분기별 저장으로 이전 완료 (${quarters.length}개 분기)`);
+    afterMainSnapshot();
+  } catch (e) {
+    console.error('MATHMILE 이전 오류:', e);
+    showToast('⚠️ 데이터 이전 중 오류: ' + e.message + ' — 새로고침(F5) 해주세요.');
+  } finally {
+    mmMigrating = false;
+  }
+}
+
+function startRealtimeSync() {
+  onSnapshot(MM_INDEX_DOC, (snap) => {
+    if (snap.metadata.hasPendingWrites) return;
+    if (!snap.exists()) {
+      if (snap.metadata.fromCache) return;
+      migrateMainToQuarters();  // 분기 목록 문서가 없으면 = 아직 이전 전
+      return;
+    }
+    applyIndex(snap.data().quarters || []);
+    afterMainSnapshot();
   }, (err) => {
     console.error('실시간 동기화 오류:', err);
     showToast('⚠️ 동기화 오류: ' + err.message);
