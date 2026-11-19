@@ -2552,7 +2552,11 @@ function findExistingPLStudent(name, grade, school, termId) {
 function getPLClassDef(termId, classId) { const t=getPLTerm(termId); return t?t.classes.find(c=>c.id===classId):null; }
 function getPLClassData(classId) {
   if (!pl_db.classes[classId]) pl_db.classes[classId]={students:[],sessions:[],currentDate:''};
-  return pl_db.classes[classId];
+  const d = pl_db.classes[classId];
+  if (!Array.isArray(d.students)) d.students = d.students ? Object.values(d.students) : [];
+  // sessions가 객체({})로 저장된 반이 있음 → 배열로 맞춤 (객체면 findIndex 오류로 발송목록 저장·임시저장이 멈췄음)
+  if (!Array.isArray(d.sessions)) d.sessions = d.sessions ? Object.values(d.sessions) : [];
+  return d;
 }
 function getPLClass(venue, classId) {
   for(const t of pl_db.terms){ const c=t.classes.find(x=>x.id===classId); if(c) return c; }
@@ -3558,8 +3562,11 @@ window.sendKakaoMsg=function(){
     return;
   }
   const msg = getPLCurrentMsg(sid);
-  // 발송목록 자동저장
-  window.markPLSent(sid);
+  // 발송목록 자동저장 (실패하면 조용히 넘어가지 않고 알림)
+  Promise.resolve().then(() => window.markPLSent(sid)).catch(e => {
+    console.error('발송목록 저장 오류:', e);
+    showToast('⚠️ 발송목록 저장 실패: ' + e.message);
+  });
   navigator.clipboard.writeText(msg).then(()=>{
     window.open(stu.kakaoUrl, '_blank');
     showToast('✅ 메시지 복사 + 발송목록 저장! 카카오에서 Ctrl+V 후 전송하세요.', 'success');
